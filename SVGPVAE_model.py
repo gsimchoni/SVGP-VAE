@@ -1,5 +1,6 @@
 import numpy as np
-import tensorflow as tf
+import tensorflow._api.v2.compat.v1 as tf
+tf.disable_v2_behavior()
 
 import tensorflow_probability as tfp
 from VAE_utils import build_MLP_inference_graph, build_MLP_decoder_graph, \
@@ -378,6 +379,112 @@ class mainSVGP:
         raise NotImplementedError()
 
 
+class dataSVGP(mainSVGP):
+
+    def __init__(self, titsias, fixed_inducing_points, initial_inducing_points, fixed_gp_params,
+                 object_vectors_init, name, jitter, N_train, L, K_obj_normalize):
+        """
+        SVGP class for data.
+
+        :param titsias: if true we use \mathcal{L}_2 (Titsias elbo). Else we use \mathcal{L}_3 (Hensman elbo).
+        :param fixed_inducing_points:
+        :param initial_inducing_points:
+        :param fixed_gp_params:
+        :param object_vectors_init: initial value for object vectors (PCA embeddings).
+                        If None, object vectors are fixed throughout training. GPLVM
+        :param name: name (or index) of the latent channel
+        :param jitter: jitter/noise for numerical stability
+        :param N_train: number of training datapoints
+        :param L: number of latent channels used in SVGPVAE
+        :param K_obj_normalize: whether or not to normalize object linear kernel
+        """
+
+        super(dataSVGP, self).__init__(titsias=titsias, fixed_inducing_points=fixed_inducing_points,
+                                        initial_inducing_points=initial_inducing_points,
+                                        name=name, jitter=jitter,
+                                        N_train=N_train, dtype=np.float64, L=L,
+                                        K_obj_normalize=K_obj_normalize)
+
+        # GP hyperparams
+        if fixed_gp_params:
+            self.l_GP = tf.constant(1.0, dtype=self.dtype)
+            self.amplitude = tf.constant(1.0, dtype=self.dtype)
+        else:
+            self.l_GP = tf.Variable(initial_value=1.0, name="GP_length_scale_{}".format(name), dtype=self.dtype)
+            self.amplitude = tf.Variable(initial_value=1.0, name="GP_amplitude_{}".format(name), dtype=self.dtype)
+
+        # kernels
+        self.kernel_view = tfk.ExpSinSquared(amplitude=self.amplitude, length_scale=self.l_GP, period=2*np.pi)
+        self.kernel_object = tfk.Linear()
+
+        # object vectors (GPLVM)
+        if object_vectors_init is not None:
+            self.object_vectors = tf.Variable(initial_value=object_vectors_init,
+                                              name="GP_object_vectors_{}".format(name),
+                                              dtype=self.dtype)
+        else:
+            self.object_vectors = None
+
+    def kernel_matrix(self, x, y, x_inducing=True, y_inducing=True, diag_only=False):
+        """
+        Computes GP kernel matrix K(x,y). Kernel from Casale's paper is used for rotated MNIST data.
+
+        :param x:
+        :param y:
+        :param x_inducing: whether x is a set of inducing points (ugly but solution using tf.shape did not work...)
+        :param y_inducing: whether y is a set of inducing points (ugly but solution using tf.shape did not work...)
+        :param diag_only: whether or not to only compute diagonal terms of the kernel matrix
+        :return:
+        """
+
+        # this stays here as a reminder of a nasty, nasty bug...
+        # x_inducing = tf.shape(x)[0] == self.nr_inducing
+        # y_inducing = tf.shape(y)[0] == self.nr_inducing
+
+        # unpack auxiliary data
+        if self.object_vectors is None:
+            x_view, x_object, y_view, y_object = x[:, 1], x[:, 2:], y[:, 1], y[:, 2:]
+        else:
+            x_view, y_view = x[:, 1], y[:, 1]
+            if x_inducing:
+                x_object = x[:, 2:]
+            else:
+                x_object = tf.gather(self.object_vectors, tf.cast(x[:, 0], dtype=tf.int64))
+            if y_inducing:
+                y_object = y[:, 2:]
+            else:
+                y_object = tf.gather(self.object_vectors, tf.cast(y[:, 0], dtype=tf.int64))
+
+        # compute kernel matrix
+        if diag_only:
+            view_matrix = self.kernel_view.apply(tf.expand_dims(x_view, axis=1), tf.expand_dims(y_view, axis=1))
+        else:
+            view_matrix = self.kernel_view.matrix(tf.expand_dims(x_view, axis=1), tf.expand_dims(y_view, axis=1))
+
+        if diag_only:
+            object_matrix = self.kernel_object.apply(x_object, y_object)
+            if self.K_obj_normalize:
+                obj_norm = tf.math.reduce_euclidean_norm(x_object, axis=1) * tf.math.reduce_euclidean_norm(y_object, axis=1)
+                object_matrix = object_matrix / obj_norm
+        else:
+            object_matrix = self.kernel_object.matrix(x_object, y_object)
+            if self.K_obj_normalize:  # normalize object matrix
+                obj_norm = 1 / tf.matmul(tf.math.reduce_euclidean_norm(x_object, axis=1, keepdims=True),
+                                         tf.transpose(tf.math.reduce_euclidean_norm(y_object, axis=1, keepdims=True),
+                                                      perm=[1, 0]))
+                object_matrix = object_matrix * obj_norm
+
+        return view_matrix * object_matrix
+
+    def variable_summary(self):
+        """
+        Returns values of parameters of sparse GP object. For debugging purposes.
+        :return:
+        """
+
+        return self.l_GP, self.amplitude, self.object_vectors, self.inducing_index_points
+
+
 class mnistSVGP(mainSVGP):
 
     def __init__(self, titsias, fixed_inducing_points, initial_inducing_points, fixed_gp_params,
@@ -715,6 +822,74 @@ def build_SVGPVAE_elbo_graph(vid_batch, beta, svgp_x, svgp_y, clipping_qs=False)
            gp_covariance_posterior_elemwise_mean_x, gp_covariance_posterior_elemwise_mean_y, globals()
 
 
+def forward_pass_standard_VAE(data_batch, vae, sigma_gaussian_decoder=0.01,
+                              clipping_qs=False, CVAE=False):
+    """
+    Forward pass for SVGPVAE on data. This is plain VAE forward pass (used in VAE-GP-joint
+    training regime).
+
+    :param data_batch:
+    :param vae:
+    :param sigma_gaussian_decoder: standard deviation of Gaussian decoder
+    :param CVAE: run CVAE
+
+    :return:
+    """
+
+    # TODO: not images necessarily, no w/h/c dimensions but general shape
+    images, aux_data = data_batch
+
+    _, w, h, c = images.get_shape()  # for MNIST c==1, for SPRITES c==3
+    b = tf.shape(images)[0]
+
+    if CVAE:  # add angles to input images
+        sin_ = tf.reshape(tf.repeat(tf.math.sin(aux_data[:, 1]), tf.repeat(w * h, b)), shape=(b, w, h, 1))
+        cos_ = tf.reshape(tf.repeat(tf.math.cos(aux_data[:, 1]), tf.repeat(w * h, b)), shape=(b, w, h, 1))
+        images_cvae = tf.concat([images, sin_, cos_], axis=3)
+
+    # ENCODER NETWORK
+    if CVAE:
+        qnet_mu, qnet_var = vae.encode(images_cvae, aux_data[:, 1])
+    else:
+        qnet_mu, qnet_var = vae.encode(images)
+
+    # clipping of VAE posterior variance
+    if clipping_qs:
+        qnet_var = tf.clip_by_value(qnet_var, 1e-3, 10)
+
+    # SAMPLE
+    epsilon = tf.random.normal(shape=tf.shape(qnet_mu), dtype=vae.dtype)
+    latent_samples = qnet_mu + epsilon * tf.sqrt(qnet_var)
+
+    # DECODER NETWORK
+    # could consider CE loss as well here (then would have Bernoulli decoder), but for that would then need to adjust
+    # range of beta param. Note that sigmoid only makes sense for Bernoulli decoder
+    if CVAE:
+        recon_images_logits = vae.decode(latent_samples, aux_data[:, 1])
+    else:
+        recon_images_logits = vae.decode(latent_samples)
+
+    # Gaussian observational likelihood
+    recon_images = recon_images_logits
+    recon_loss = tf.reduce_sum((images - recon_images_logits) ** 2)
+
+    # Bernoulli observational likelihood, CE
+    # recon_images = tf.nn.sigmoid(recon_images_logits)
+    # recon_loss = tf.reduce_sum(tf.nn.sigmoid_cross_entropy_with_logits(labels=images,
+    #                                                                    logits=recon_images_logits))
+
+    # ELBO (plain VAE)
+    KL_term = KL_term_standard_normal_prior(qnet_mu, qnet_var, dtype=vae.dtype)
+
+    elbo = -(0.5/sigma_gaussian_decoder**2)*recon_loss - KL_term
+
+    # report MSE per pixel
+    K = tf.cast(w, dtype=vae.dtype) * tf.cast(h, dtype=vae.dtype) * tf.cast(c, dtype=vae.dtype)
+    recon_loss = recon_loss / K
+
+    return recon_loss, KL_term, elbo, recon_images, qnet_mu, qnet_var, latent_samples
+
+
 def forward_pass_standard_VAE_rotated_mnist(data_batch, vae, sigma_gaussian_decoder=0.01,
                                             clipping_qs=False, CVAE=False):
     """
@@ -1021,6 +1196,66 @@ def precompute_GP_params_SVGPVAE(means, vars, aux_data, svgp):
     inv_Sigma_l_mats = tf.stack(inv_Sigma_l_mats, axis=0)
 
     return mean_terms, inv_Sigma_l_mats
+
+
+def batching_predict_SVGPVAE(test_data_batch, vae, svgp,
+                                           qnet_mu, qnet_var, aux_data_train):
+    """
+    Get predictions for test data. See chapter 3.3 in Casale's paper.
+    This version supports batching in prediction pipeline (contrary to function predict_SVGPVAE_rotated_mnist) .
+
+    :param test_data_batch: batch of test data
+    :param vae: fitted (!) VAE object
+    :param svgp: fitted (!) SVGP object
+    :param qnet_mu: precomputed encodings (means) of train dataset (N_train, L)
+    :param qnet_var: precomputed encodings (vars) of train dataset (N_train, L)
+    :param aux_data_train: train aux data (N_train, 10)
+    :return:
+    """
+    # TODO: not images necessarily, no w/h/c dimensions but general shape
+    images_test_batch, aux_data_test_batch = test_data_batch
+
+    _, w, h, _ = images_test_batch.get_shape()
+
+    # get latent samples for test data from GP posterior
+    p_m, p_v = [], []
+    for l in range(qnet_mu.get_shape()[1]):  # iterate over latent dimensions
+        p_m_l, p_v_l, _, _ = svgp.approximate_posterior_params(index_points_test=aux_data_test_batch,
+                                                               index_points_train=aux_data_train,
+                                                               y=qnet_mu[:, l], noise=qnet_var[:, l])
+        p_m.append(p_m_l)
+        p_v.append(p_v_l)
+
+    p_m = tf.stack(p_m, axis=1)
+    p_v = tf.stack(p_v, axis=1)
+
+    epsilon = tf.random.normal(shape=tf.shape(p_m), dtype=tf.float64)
+    latent_samples = p_m + epsilon * tf.sqrt(p_v)
+
+    # predict (decode) latent images.
+    # ===============================================
+    # Since this is generation (testing pipeline), could add \sigma_y to images
+    recon_images_test_logits = vae.decode(latent_samples)
+
+    # Gaussian observational likelihood, no variance
+    recon_images_test = recon_images_test_logits
+
+    # Bernoulli observational likelihood
+    # recon_images_test = tf.nn.sigmoid(recon_images_test_logits)
+
+    # Gaussian observational likelihood, fixed variance \sigma_y
+    # recon_images_test = recon_images_test_logits + tf.random.normal(shape=tf.shape(recon_images_test_logits),
+    #                                                                 mean=0.0, stddev=0.04, dtype=tf.float64)
+
+    # MSE loss for CGEN (here we do not consider MSE loss, ince )
+    recon_loss = tf.reduce_sum((images_test_batch - recon_images_test_logits) ** 2)
+
+    # report per pixel loss
+    K = tf.cast(w, dtype=tf.float64) * tf.cast(h, dtype=tf.float64)
+    recon_loss = recon_loss / K
+    # ===============================================
+
+    return recon_images_test, recon_loss
 
 
 def bacthing_predict_SVGPVAE_rotated_mnist(test_data_batch, vae, svgp,

@@ -2,7 +2,9 @@
 Utils functions for the moving ball and the rotated MNIST experiments.
 """
 
-import tensorflow as tf
+import tensorflow._api.v2.compat.v1 as tf
+tf.disable_v2_behavior()
+
 import tensorflow_probability as tfp
 from tensorflow.python.ops import math_ops as tfmath_ops
 import numpy as np
@@ -459,7 +461,7 @@ class pandas_res_saver:
         self.colnames = colnames
     
     def __call__(self, new_data, n_steps=10):
-        new_data = np.asarray(new_data).reshape((-1, self.ncols))
+        new_data = np.asarray(new_data, dtype=object).reshape((-1, self.ncols))
         new_data = pd.DataFrame(new_data, columns=self.colnames)
         self.data = pd.concat([self.data, new_data])
 
@@ -686,6 +688,61 @@ def plot_mnist(arr, recon_arr, title, nr_images=8, seed=0):
             plt.xlabel("Recon image, id: {}".format(indices[i // 2]))
     # plt.tight_layout()
     plt.draw()
+
+
+def generate_init_inducing_points_general(train_data, n=5, nr_angles=16, seed_init=0, remove_test_angle=None,
+                                  PCA=False, M=8, seed=0):
+    """
+    Generate initial inducing points for rotated MNIST data.
+    For each angle we sample n object vectors from empirical distribution of PCA embeddings of training data.
+
+    :param n: how many object vectors per each angle to sample
+    :param nr_angles: number of angles between [0, 2pi)
+    :param remove_test_angle: if None, test angle is kept in inducing point set. Else if index between 0 and nr_angles-1
+        is passed, this angle is removed (to investigate possible data leakage through inducing points).
+    :param PCA: whether or not to use PCA initialization
+    :param M: dimension of GPLVM vectors
+    """
+
+    random.seed(seed)
+
+    data = train_data['aux_X']
+    # TODO: when not MNIST there aren't necessary angles...
+    angles = np.linspace(0, 2 * np.pi, nr_angles + 1)[:-1]
+    inducing_points = []
+
+    if n < 1:
+        indices = random.sample(list(range(nr_angles)), int(n*nr_angles))
+        n = 1
+    else:
+        indices = range(nr_angles)
+
+    for i in indices:
+
+        # skip test angle
+        if i == remove_test_angle:
+            continue
+
+        # for reproducibility
+        seed = seed_init + i
+
+        if PCA:
+            obj_vectors = []
+            for pca_ax in range(2, 2 + M):
+                # sample from empirical dist of PCA embeddings
+                obj_vectors.append(scipy.stats.gaussian_kde(data[:, pca_ax]).resample(int(n), seed=seed))
+
+            obj_vectors = np.concatenate(tuple(obj_vectors)).T
+        else:
+            obj_vectors = np.random.normal(0, 1.5, int(n)*M).reshape(int(n), M)
+
+        obj_vectors = np.hstack((np.full((int(n), 1), angles[i]), obj_vectors))  # add angle to each inducing point
+        inducing_points.append(obj_vectors)
+
+    inducing_points = np.concatenate(tuple(inducing_points))
+    id_col = np.array([list(range(len(inducing_points)))]).T
+    inducing_points = np.hstack((id_col, inducing_points))
+    return inducing_points
 
 
 def generate_init_inducing_points(train_data_path, n=5, nr_angles=16, seed_init=0, remove_test_angle=None,

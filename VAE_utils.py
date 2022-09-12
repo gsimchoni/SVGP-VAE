@@ -1,6 +1,7 @@
 import numpy as np
 import tensorflow as tf
-
+# import tensorflow._api.v2.compat.v1 as tf
+# tf.disable_v2_behavior()
 
 def _add_diagonal_jitter(matrix, jitter=1e-2):
     return tf.linalg.set_diag(matrix, tf.linalg.diag_part(matrix) + jitter)
@@ -267,7 +268,7 @@ def KL_term_standard_normal_prior(mean_vector, var_vector, dtype):
     :return: (batch_size, 1)
     """
     return 0.5 * (- tf.cast(tf.reduce_prod(tf.shape(mean_vector)), dtype=dtype)
-                  - 2.0*tf.reduce_sum(tf.log(tf.sqrt(var_vector)))
+                  - 2.0*tf.reduce_sum(tf.math.log(tf.sqrt(var_vector)))
                   + tf.reduce_sum(var_vector)
                   + tf.reduce_sum(mean_vector**2))
 
