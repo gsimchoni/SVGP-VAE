@@ -67,11 +67,13 @@ def tensor_slice(data_dict, batch_size, placeholder):
     return data, batch_size_placeholder
 
 def run_experiment_SVGPVAE(train_data_dict, eval_data_dict, test_data_dict,
-    L, M, nr_inducing_points, init_PCA, ip_joint, GP_joint, ov_joint,
-    batch_size, disable_gpu, elbo_arg, beta_arg, lr_arg, base_dir, expid,
-    jitter, object_kernel_normalize, save, save_latents, save_model_weights, show_pics,
-    kappa_squared, clip_qs, GECO, bias_analysis, opt_regime, test_set_metrics,
-    mnist_data_path, ram, dataset, mnist=False):
+    L, batch_size, nr_epochs, elbo_arg, M=8, nr_inducing_points=2, init_PCA=True,
+    ip_joint=True, GP_joint=True, ov_joint=True,
+    disable_gpu=True, beta_arg=0.001, lr_arg=0.001, base_dir=os.getcwd(), expid='debug_TABULAR',
+    jitter=0.000001, object_kernel_normalize=False, save=False, save_latents=False,
+    save_model_weights=False, show_pics=False, kappa_squared=0.020, clip_qs=True,
+    GECO=True, bias_analysis=False, opt_regime=['joint-1000'], test_set_metrics=False,
+    mnist_data_path='MNIST data/', ram=1.0, dataset='3', mnist=False):
     """
     Function with tensorflow graph and session for SVGPVAE experiments on rotated MNIST data.
     For description of SVGPVAE see chapter 7 in SVGPVAE.tex
@@ -604,7 +606,7 @@ if __name__=="__main__":
 
     default_base_dir = os.getcwd()
 
-    parser_tabular = argparse.ArgumentParser(description='Tabular daya experiment.')
+    parser_tabular = argparse.ArgumentParser(description='Tabular data experiment.')
     parser_tabular.add_argument('--expid', type=str, default="debug_TABULAR", help='give this experiment a name')
     parser_tabular.add_argument('--base_dir', type=str, default=default_base_dir,
                               help='folder within a new dir is made for each run')
@@ -661,9 +663,10 @@ if __name__=="__main__":
         dict_ = vars(args_tabular)  # [update, 23.6.] to get around weirdest bug ever
         train_data_dict, eval_data_dict, test_data_dict = load_mnist_data(args_tabular, ending = args_tabular.dataset + '.p')
         run_experiment_SVGPVAE(train_data_dict, eval_data_dict, test_data_dict,
-            args_tabular.L, args_tabular.M, args_tabular.nr_inducing_points, args_tabular.PCA,
+            args_tabular.L, args_tabular.batch_size, args_tabular.nr_epochs, args_tabular.elbo,
+            args_tabular.M, args_tabular.nr_inducing_points, args_tabular.PCA,
             args_tabular.ip_joint, args_tabular.GP_joint, args_tabular.ov_joint,
-            args_tabular.batch_size, args_tabular.disable_gpu, args_tabular.elbo,
+            args_tabular.disable_gpu,
             args_tabular.beta, args_tabular.lr, args_tabular.base_dir, args_tabular.expid,
             args_tabular.jitter, args_tabular.object_kernel_normalize, args_tabular.save,
             args_tabular.save_latents, args_tabular.save_model_weights, args_tabular.show_pics,
