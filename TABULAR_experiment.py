@@ -14,17 +14,30 @@ import tensorflow._api.v2.compat.v1 as tf
 tf.disable_v2_behavior()
 import tensorflow_probability as tfp
 
-from utils import generate_init_inducing_points_general, plot_mnist, generate_init_inducing_points, import_rotated_mnist, \
-                  print_trainable_vars, parse_opt_regime, compute_bias_variance_mean_estimators, \
-                  make_checkpoint_folder, pandas_res_saver, latent_samples_SVGPVAE, latent_samples_VAE_full_train
-from VAE_utils import mnistVAE, mnistCVAE, SVIGP_Hensman_decoder
-from SVGPVAE_model import batching_predict_SVGPVAE, dataSVGP, forward_pass_SVGPVAE, forward_pass_standard_VAE, \
-                          mnistSVGP, forward_pass_standard_VAE_rotated_mnist, \
-                          batching_encode_SVGPVAE, batching_encode_SVGPVAE_full, \
-                          bacthing_predict_SVGPVAE_rotated_mnist, predict_CVAE
+if __package__ is None or __package__ == '':
+    from utils import generate_init_inducing_points_general, plot_mnist, generate_init_inducing_points, import_rotated_mnist, \
+                    print_trainable_vars, parse_opt_regime, compute_bias_variance_mean_estimators, \
+                    make_checkpoint_folder, pandas_res_saver, latent_samples_SVGPVAE, latent_samples_VAE_full_train
+    from VAE_utils import mnistVAE, mnistCVAE, SVIGP_Hensman_decoder
+    from SVGPVAE_model import batching_predict_SVGPVAE, dataSVGP, forward_pass_SVGPVAE, forward_pass_standard_VAE, \
+                            mnistSVGP, forward_pass_standard_VAE_rotated_mnist, \
+                            batching_encode_SVGPVAE, batching_encode_SVGPVAE_full, \
+                            bacthing_predict_SVGPVAE_rotated_mnist, predict_CVAE
+    from GPVAE_Casale_model import encode, casaleGP, forward_pass_Casale, predict_test_set_Casale, sort_train_data
+    from SVIGP_Hensman_model import SVIGP_Hensman, forward_pass_deep_SVIGP_Hensman, predict_deep_SVIGP_Hensman
+else:
+    from .utils import generate_init_inducing_points_general, plot_mnist, generate_init_inducing_points, import_rotated_mnist, \
+                    print_trainable_vars, parse_opt_regime, compute_bias_variance_mean_estimators, \
+                    make_checkpoint_folder, pandas_res_saver, latent_samples_SVGPVAE, latent_samples_VAE_full_train
+    from .VAE_utils import mnistVAE, mnistCVAE, SVIGP_Hensman_decoder
+    from .SVGPVAE_model import batching_predict_SVGPVAE, dataSVGP, forward_pass_SVGPVAE, forward_pass_standard_VAE, \
+                            mnistSVGP, forward_pass_standard_VAE_rotated_mnist, \
+                            batching_encode_SVGPVAE, batching_encode_SVGPVAE_full, \
+                            bacthing_predict_SVGPVAE_rotated_mnist, predict_CVAE
 
-from GPVAE_Casale_model import encode, casaleGP, forward_pass_Casale, predict_test_set_Casale, sort_train_data
-from SVIGP_Hensman_model import SVIGP_Hensman, forward_pass_deep_SVIGP_Hensman, predict_deep_SVIGP_Hensman
+    from .GPVAE_Casale_model import encode, casaleGP, forward_pass_Casale, predict_test_set_Casale, sort_train_data
+    from .SVIGP_Hensman_model import SVIGP_Hensman, forward_pass_deep_SVIGP_Hensman, predict_deep_SVIGP_Hensman
+
 
 tfd = tfp.distributions
 tfk = tfp.math.psd_kernels

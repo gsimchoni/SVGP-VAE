@@ -3,9 +3,15 @@ import tensorflow._api.v2.compat.v1 as tf
 tf.disable_v2_behavior()
 
 import tensorflow_probability as tfp
-from VAE_utils import build_MLP_inference_graph, build_MLP_decoder_graph, \
-                      KL_term_standard_normal_prior
-from utils import gauss_cross_entropy
+
+if __package__ is None or __package__ == '':
+    from VAE_utils import build_MLP_inference_graph, build_MLP_decoder_graph, \
+                        KL_term_standard_normal_prior
+    from utils import gauss_cross_entropy
+else:
+    from .VAE_utils import build_MLP_inference_graph, build_MLP_decoder_graph, \
+                        KL_term_standard_normal_prior
+    from .utils import gauss_cross_entropy
 
 tfd = tfp.distributions
 tfk = tfp.math.psd_kernels
