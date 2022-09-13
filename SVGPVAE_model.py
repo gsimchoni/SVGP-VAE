@@ -842,22 +842,22 @@ def forward_pass_standard_VAE(data_batch, vae, sigma_gaussian_decoder=0.01,
     :return:
     """
 
-    # TODO: not images necessarily, no w/h/c dimensions but general shape
-    images, aux_data = data_batch
+    data_Y, aux_X = data_batch
+    # _, w, h, c = data_Y.get_shape()
+    y_shape = data_Y.get_shape()  # for MNIST c==1, for SPRITES c==3
+    b = tf.shape(data_Y)[0]
 
-    _, w, h, c = images.get_shape()  # for MNIST c==1, for SPRITES c==3
-    b = tf.shape(images)[0]
-
+    # TODO: CVAE will only work for images this way, specifically MNIST, aux_X[:, 1] is angle
     if CVAE:  # add angles to input images
-        sin_ = tf.reshape(tf.repeat(tf.math.sin(aux_data[:, 1]), tf.repeat(w * h, b)), shape=(b, w, h, 1))
-        cos_ = tf.reshape(tf.repeat(tf.math.cos(aux_data[:, 1]), tf.repeat(w * h, b)), shape=(b, w, h, 1))
-        images_cvae = tf.concat([images, sin_, cos_], axis=3)
+        sin_ = tf.reshape(tf.repeat(tf.math.sin(aux_X[:, 1]), tf.repeat(y_shape[1] * y_shape[2], b)), shape=(b, y_shape[1], y_shape[2], 1))
+        cos_ = tf.reshape(tf.repeat(tf.math.cos(aux_X[:, 1]), tf.repeat(y_shape[1] * y_shape[2], b)), shape=(b, y_shape[1], y_shape[2], 1))
+        data_Y_cvae = tf.concat([data_Y, sin_, cos_], axis=3)
 
     # ENCODER NETWORK
     if CVAE:
-        qnet_mu, qnet_var = vae.encode(images_cvae, aux_data[:, 1])
+        qnet_mu, qnet_var = vae.encode(data_Y_cvae, aux_X[:, 1])
     else:
-        qnet_mu, qnet_var = vae.encode(images)
+        qnet_mu, qnet_var = vae.encode(data_Y)
 
     # clipping of VAE posterior variance
     if clipping_qs:
@@ -871,13 +871,13 @@ def forward_pass_standard_VAE(data_batch, vae, sigma_gaussian_decoder=0.01,
     # could consider CE loss as well here (then would have Bernoulli decoder), but for that would then need to adjust
     # range of beta param. Note that sigmoid only makes sense for Bernoulli decoder
     if CVAE:
-        recon_images_logits = vae.decode(latent_samples, aux_data[:, 1])
+        recon_data_Y_logits = vae.decode(latent_samples, aux_X[:, 1])
     else:
-        recon_images_logits = vae.decode(latent_samples)
+        recon_data_Y_logits = vae.decode(latent_samples)
 
     # Gaussian observational likelihood
-    recon_images = recon_images_logits
-    recon_loss = tf.reduce_sum((images - recon_images_logits) ** 2)
+    recon_data_Y = recon_data_Y_logits
+    recon_loss = tf.reduce_sum((data_Y - recon_data_Y_logits) ** 2)
 
     # Bernoulli observational likelihood, CE
     # recon_images = tf.nn.sigmoid(recon_images_logits)
@@ -890,10 +890,10 @@ def forward_pass_standard_VAE(data_batch, vae, sigma_gaussian_decoder=0.01,
     elbo = -(0.5/sigma_gaussian_decoder**2)*recon_loss - KL_term
 
     # report MSE per pixel
-    K = tf.cast(w, dtype=vae.dtype) * tf.cast(h, dtype=vae.dtype) * tf.cast(c, dtype=vae.dtype)
+    K = tf.cast(tf.reduce_prod(y_shape[1:]), dtype=vae.dtype)
     recon_loss = recon_loss / K
 
-    return recon_loss, KL_term, elbo, recon_images, qnet_mu, qnet_var, latent_samples
+    return recon_loss, KL_term, elbo, recon_data_Y, qnet_mu, qnet_var, latent_samples
 
 
 def forward_pass_standard_VAE_rotated_mnist(data_batch, vae, sigma_gaussian_decoder=0.01,
@@ -1205,7 +1205,7 @@ def precompute_GP_params_SVGPVAE(means, vars, aux_data, svgp):
 
 
 def batching_predict_SVGPVAE(test_data_batch, vae, svgp,
-                                           qnet_mu, qnet_var, aux_data_train):
+                             qnet_mu, qnet_var, aux_data_train):
     """
     Get predictions for test data. See chapter 3.3 in Casale's paper.
     This version supports batching in prediction pipeline (contrary to function predict_SVGPVAE_rotated_mnist) .
@@ -1218,15 +1218,14 @@ def batching_predict_SVGPVAE(test_data_batch, vae, svgp,
     :param aux_data_train: train aux data (N_train, 10)
     :return:
     """
-    # TODO: not images necessarily, no w/h/c dimensions but general shape
-    images_test_batch, aux_data_test_batch = test_data_batch
+    data_Y_test_batch, aux_X_test_batch = test_data_batch
 
-    _, w, h, _ = images_test_batch.get_shape()
+    y_shape = data_Y_test_batch.get_shape()
 
     # get latent samples for test data from GP posterior
     p_m, p_v = [], []
     for l in range(qnet_mu.get_shape()[1]):  # iterate over latent dimensions
-        p_m_l, p_v_l, _, _ = svgp.approximate_posterior_params(index_points_test=aux_data_test_batch,
+        p_m_l, p_v_l, _, _ = svgp.approximate_posterior_params(index_points_test=aux_X_test_batch,
                                                                index_points_train=aux_data_train,
                                                                y=qnet_mu[:, l], noise=qnet_var[:, l])
         p_m.append(p_m_l)
@@ -1241,10 +1240,10 @@ def batching_predict_SVGPVAE(test_data_batch, vae, svgp,
     # predict (decode) latent images.
     # ===============================================
     # Since this is generation (testing pipeline), could add \sigma_y to images
-    recon_images_test_logits = vae.decode(latent_samples)
+    recon_data_Y_test_logits = vae.decode(latent_samples)
 
     # Gaussian observational likelihood, no variance
-    recon_images_test = recon_images_test_logits
+    recon_data_Y_test = recon_data_Y_test_logits
 
     # Bernoulli observational likelihood
     # recon_images_test = tf.nn.sigmoid(recon_images_test_logits)
@@ -1254,14 +1253,14 @@ def batching_predict_SVGPVAE(test_data_batch, vae, svgp,
     #                                                                 mean=0.0, stddev=0.04, dtype=tf.float64)
 
     # MSE loss for CGEN (here we do not consider MSE loss, ince )
-    recon_loss = tf.reduce_sum((images_test_batch - recon_images_test_logits) ** 2)
+    recon_loss = tf.reduce_sum((data_Y_test_batch - recon_data_Y_test_logits) ** 2)
 
     # report per pixel loss
-    K = tf.cast(w, dtype=tf.float64) * tf.cast(h, dtype=tf.float64)
+    K = tf.cast(tf.reduce_prod(y_shape[1:]), dtype=vae.dtype)
     recon_loss = recon_loss / K
     # ===============================================
 
-    return recon_images_test, recon_loss
+    return recon_data_Y_test, recon_loss
 
 
 def bacthing_predict_SVGPVAE_rotated_mnist(test_data_batch, vae, svgp,
