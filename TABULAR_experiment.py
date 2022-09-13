@@ -8,6 +8,7 @@ import json
 import numpy as np
 from sklearn.decomposition import PCA
 import matplotlib as mpl
+
 mpl.use('Agg')
 import matplotlib.pyplot as plt
 import tensorflow._api.v2.compat.v1 as tf
@@ -18,7 +19,7 @@ if __package__ is None or __package__ == '':
     from utils import generate_init_inducing_points_general, plot_mnist, generate_init_inducing_points, import_rotated_mnist, \
                     print_trainable_vars, parse_opt_regime, compute_bias_variance_mean_estimators, \
                     make_checkpoint_folder, pandas_res_saver, latent_samples_SVGPVAE, latent_samples_VAE_full_train
-    from VAE_utils import mnistVAE, mnistCVAE, SVIGP_Hensman_decoder
+    from VAE_utils import mnistVAE, mnistCVAE, SVIGP_Hensman_decoder, tabularVAE
     from SVGPVAE_model import batching_predict_SVGPVAE, dataSVGP, forward_pass_SVGPVAE, forward_pass_standard_VAE, \
                             mnistSVGP, forward_pass_standard_VAE_rotated_mnist, \
                             batching_encode_SVGPVAE, batching_encode_SVGPVAE_full, \
@@ -29,7 +30,7 @@ else:
     from .utils import generate_init_inducing_points_general, plot_mnist, generate_init_inducing_points, import_rotated_mnist, \
                     print_trainable_vars, parse_opt_regime, compute_bias_variance_mean_estimators, \
                     make_checkpoint_folder, pandas_res_saver, latent_samples_SVGPVAE, latent_samples_VAE_full_train
-    from .VAE_utils import mnistVAE, mnistCVAE, SVIGP_Hensman_decoder
+    from .VAE_utils import mnistVAE, mnistCVAE, SVIGP_Hensman_decoder, tabularVAE
     from .SVGPVAE_model import batching_predict_SVGPVAE, dataSVGP, forward_pass_SVGPVAE, forward_pass_standard_VAE, \
                             mnistSVGP, forward_pass_standard_VAE_rotated_mnist, \
                             batching_encode_SVGPVAE, batching_encode_SVGPVAE_full, \
@@ -67,7 +68,7 @@ def tensor_slice(data_dict, batch_size, placeholder):
     return data, batch_size_placeholder
 
 def run_experiment_SVGPVAE(train_data_dict, eval_data_dict, test_data_dict,
-    L, batch_size, nr_epochs, elbo_arg, M=8, nr_inducing_points=2, init_PCA=True,
+    L, batch_size, nr_epochs, n_neurons, dropout, activation, elbo_arg, M=8, nr_inducing_points=2, init_PCA=True,
     ip_joint=True, GP_joint=True, ov_joint=True,
     disable_gpu=True, beta_arg=0.001, lr_arg=0.001, base_dir=os.getcwd(), expid='debug_TABULAR',
     jitter=0.000001, object_kernel_normalize=False, save=False, save_latents=False,
@@ -131,7 +132,7 @@ def run_experiment_SVGPVAE(train_data_dict, eval_data_dict, test_data_dict,
         if elbo_arg == "CVAE":
             VAE = mnistCVAE(L=L)
         else:
-            VAE = mnistVAE(L=L)
+            VAE = tabularVAE(input_batch[0].shape[1], L, n_neurons, dropout, activation)
         beta = tf.placeholder(dtype=tf.float64, shape=())
 
         # placeholders

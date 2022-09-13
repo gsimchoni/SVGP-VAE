@@ -259,6 +259,73 @@ class mnistCVAE:
         return recon_images
 
 
+class tabularVAE:
+
+    dtype = tf.float64
+
+    def __init__(self, p, L, n_neurons, dropout, activation):
+        """
+        VAE for tabular data.
+
+        :param p:
+        :param L:
+        """
+
+        self.p = p
+        self.L = L
+
+        self.encoder = tf.keras.Sequential()
+        self.encoder.add(tf.keras.layers.InputLayer(input_shape=(self.p,), dtype=self.dtype))
+        if n_neurons is not None and len(n_neurons) > 0:
+            self.encoder.add(tf.keras.layers.Dense(n_neurons[0], activation=activation))
+            if dropout is not None and len(dropout) > 0:
+                self.encoder.add(tf.keras.Dropout(dropout[0]))
+            for i in range(1, len(n_neurons) - 1):
+                self.encoder.add(tf.keras.layers.Dense(n_neurons[i], activation=activation))
+                if dropout is not None and len(dropout) > i:
+                    self.encoder.add(tf.keras.Dropout(dropout[i]))
+            if len(n_neurons) > 1:
+                self.encoder.add(tf.keras.layers.Dense(n_neurons[-1], activation=activation))
+        self.encoder.add(tf.keras.layers.Dense(2 * self.L))
+
+        n_neurons_rev = None if n_neurons is None else list(reversed(n_neurons))
+        dropout_rev = None if dropout is None else list(reversed(dropout))
+        self.decoder = tf.keras.Sequential()
+        self.decoder.add(tf.keras.layers.InputLayer(input_shape=(self.L,), dtype=self.dtype))
+        if n_neurons_rev is not None and len(n_neurons_rev) > 0:
+            self.decoder.add(tf.keras.layers.Dense(n_neurons_rev[0], activation=activation))
+            if dropout_rev is not None and len(dropout_rev) > 0:
+                self.decoder.add(tf.keras.Dropout(dropout[0]))
+            for i in range(1, len(n_neurons_rev) - 1):
+                self.decoder.add(tf.keras.layers.Dense(n_neurons_rev[i], activation=activation))
+                if dropout_rev is not None and len(dropout_rev) > i:
+                    self.decoder.add(tf.keras.Dropout(dropout_rev[i]))
+            if len(n_neurons_rev) > 1:
+                self.decoder.add(tf.keras.layers.Dense(n_neurons_rev[-1], activation=activation))
+        self.decoder.add(tf.keras.layers.Dense(self.p))
+
+    def encode(self, data_Y):
+        """
+
+        :param images:
+        :return:
+        """
+
+        encodings = self.encoder(data_Y)
+        means, vars = encodings[:, :self.L], tf.exp(encodings[:, self.L:])  # encoder outputs \mu and log(\sigma^2)
+        return means, vars
+
+    def decode(self, latent_samples):
+        """
+
+        :param latent_samples:
+        :return:
+        """
+
+        recon_data_Y = self.decoder(latent_samples)
+        return recon_data_Y
+
+
 def KL_term_standard_normal_prior(mean_vector, var_vector, dtype):
     """
     Computes KL divergence between standard normal prior and variational distribution from encoder.
