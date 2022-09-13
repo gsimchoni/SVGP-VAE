@@ -66,7 +66,12 @@ def tensor_slice(data_dict, batch_size, placeholder):
     data = tf.data.Dataset.zip((data_Y, data_X)).batch(batch_size_placeholder)
     return data, batch_size_placeholder
 
-def run_experiment_SVGPVAE(args, args_dict, mnist=True):
+def run_experiment_SVGPVAE(train_data_dict, eval_data_dict, test_data_dict,
+    L, M, nr_inducing_points, init_PCA, ip_joint, GP_joint, ov_joint,
+    batch_size, disable_gpu, elbo_arg, beta_arg, lr_arg, base_dir, expid,
+    jitter, object_kernel_normalize, save, save_latents, save_model_weights, show_pics,
+    kappa_squared, clip_qs, GECO, bias_analysis, opt_regime, test_set_metrics,
+    mnist_data_path, ram, dataset, mnist=False):
     """
     Function with tensorflow graph and session for SVGPVAE experiments on rotated MNIST data.
     For description of SVGPVAE see chapter 7 in SVGPVAE.tex
@@ -75,36 +80,36 @@ def run_experiment_SVGPVAE(args, args_dict, mnist=True):
     :return:
     """
     # Problem with local TF setup, works fine in Google Colab
-    if args.disable_gpu:
+    if disable_gpu:
         os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
-    if args.save:
+    if save:
         # Make a folder to save everything
-        extra = args.elbo + "_" + str(args.beta)
-        chkpnt_dir = make_checkpoint_folder(args.base_dir, args.expid, extra)
+        extra = elbo_arg + "_" + str(beta_arg)
+        chkpnt_dir = make_checkpoint_folder(base_dir, expid, extra)
         pic_folder = chkpnt_dir + "pics/"
         res_file = chkpnt_dir + "res/ELBO_pandas"
         res_file_GP = chkpnt_dir + "res/ELBO_GP_pandas"
-        if "SVGPVAE" in args.elbo:
+        if "SVGPVAE" in elbo_arg:
             res_file_VAE = chkpnt_dir + "res/ELBO_VAE_pandas"
         print("\nCheckpoint Directory:\n" + str(chkpnt_dir) + "\n")
 
-        json.dump(args_dict, open(chkpnt_dir + "/args.json", "wt"))
+        # json.dump(args_dict, open(chkpnt_dir + "/json", "wt"))
 
-    train_data_dict, eval_data_dict, test_data_dict = load_mnist_data(args, ending = args.dataset + '.p')
+    # train_data_dict, eval_data_dict, test_data_dict = load_mnist_data(args, ending = dataset + '.p')
 
     graph = tf.Graph()
     with graph.as_default():
         # ====================== 1) import data ======================
-        train_data, _ = tensor_slice(train_data_dict, args.batch_size, placeholder=False)
+        train_data, _ = tensor_slice(train_data_dict, batch_size, placeholder=False)
         N_train = train_data_dict['data_Y'].shape[0]
         N_eval = eval_data_dict['data_Y'].shape[0]
         N_test = test_data_dict['data_Y'].shape[0]
 
         # eval data
-        eval_data, eval_batch_size_placeholder = tensor_slice(eval_data_dict, args.batch_size, placeholder=True)
+        eval_data, eval_batch_size_placeholder = tensor_slice(eval_data_dict, batch_size, placeholder=True)
 
         # test data
-        test_data, test_batch_size_placeholder = tensor_slice(test_data_dict, args.batch_size, placeholder=True)
+        test_data, test_batch_size_placeholder = tensor_slice(test_data_dict, batch_size, placeholder=True)
 
         # init iterator
         iterator = tf.data.Iterator.from_structure(
@@ -121,37 +126,33 @@ def run_experiment_SVGPVAE(args, args_dict, mnist=True):
         # ====================== 2) build ELBO graph ======================
 
         # init VAE object
-        if args.elbo == "CVAE":
-            VAE = mnistCVAE(L=args.L)
+        if elbo_arg == "CVAE":
+            VAE = mnistCVAE(L=L)
         else:
-            VAE = mnistVAE(L=args.L)
+            VAE = mnistVAE(L=L)
         beta = tf.placeholder(dtype=tf.float64, shape=())
 
         # placeholders
         y_shape = (None,) + train_data_dict['data_Y'].shape[1:]
-        train_aux_X_placeholder = tf.placeholder(dtype=tf.float64, shape=(None, 2 + args.M))
+        train_aux_X_placeholder = tf.placeholder(dtype=tf.float64, shape=(None, 2 + M))
         train_data_Y_placeholder = tf.placeholder(dtype=tf.float64, shape=y_shape)
-        test_aux_X_placeholder = tf.placeholder(dtype=tf.float64, shape=(None, 2 + args.M))
+        test_aux_X_placeholder = tf.placeholder(dtype=tf.float64, shape=(None, 2 + M))
         test_data_Y_placeholder = tf.placeholder(dtype=tf.float64, shape=y_shape)
 
-        if "SVGPVAE" in args.elbo:  # SVGPVAE
-            inducing_points_init = generate_init_inducing_points(args.mnist_data_path + 'train_data' + args.dataset + '.p',
-                                                                 n=args.nr_inducing_points,
-                                                                 remove_test_angle=None,
-                                                                 PCA=args.PCA, M=args.M)
+        if "SVGPVAE" in elbo_arg:  # SVGPVAE
             inducing_points_init = generate_init_inducing_points_general(
                                                                  train_data_dict,
-                                                                 n=args.nr_inducing_points,
+                                                                 n=nr_inducing_points,
                                                                  remove_test_angle=None,
-                                                                 PCA=args.PCA, M=args.M)
-            titsias = 'Titsias' in args.elbo
-            ip_joint = not args.ip_joint
-            GP_joint = not args.GP_joint
-            if args.ov_joint:
-                if args.PCA:  # use PCA embeddings for initialization of object vectors
+                                                                 PCA=init_PCA, M=M)
+            titsias = 'Titsias' in elbo_arg
+            ip_joint = not ip_joint
+            GP_joint = not GP_joint
+            if ov_joint:
+                if init_PCA:  # use PCA embeddings for initialization of object vectors
                     if mnist:
-                        object_vectors_init = pickle.load(open(args.mnist_data_path +
-                                                            'pca_ov_init{}.p'.format(args.dataset), 'rb'))
+                        object_vectors_init = pickle.load(open(mnist_data_path +
+                                                            'pca_ov_init{}.p'.format(dataset), 'rb'))
                     else:
                         # subsample N=400 (q) **unique** objects, not like here
                         indices = random.sample(list(range(train_data_dict['data_Y'].shape[0])), 400)
@@ -163,8 +164,7 @@ def run_experiment_SVGPVAE(args, args_dict, mnist=True):
                 else:  # initialize object vectors randomly
                     # TODO: replace 400 with "q" objects
                     object_vectors_init = np.random.normal(0, 1.5,
-                                                           len(args.dataset)*400*args.M).reshape(len(args.dataset)*400,
-                                                                                                 args.M)
+                                                           len(dataset)*400*M).reshape(len(dataset)*400, M)
             else:
                 object_vectors_init = None
 
@@ -172,8 +172,8 @@ def run_experiment_SVGPVAE(args, args_dict, mnist=True):
             SVGP_ = dataSVGP(titsias=titsias, fixed_inducing_points=ip_joint,
                               initial_inducing_points=inducing_points_init,
                               fixed_gp_params=GP_joint, object_vectors_init=object_vectors_init, name='main',
-                              jitter=args.jitter, N_train=N_train,
-                              L=args.L, K_obj_normalize=args.object_kernel_normalize)
+                              jitter=jitter, N_train=N_train,
+                              L=L, K_obj_normalize=object_kernel_normalize)
 
             # forward pass SVGPVAE
             C_ma_placeholder = tf.placeholder(dtype=tf.float64, shape=())
@@ -183,16 +183,16 @@ def run_experiment_SVGPVAE(args, args_dict, mnist=True):
             elbo, recon_loss, KL_term, inside_elbo, ce_term, p_m, p_v, qnet_mu, qnet_var, recon_data_Y, \
             inside_elbo_recon, inside_elbo_kl, latent_samples, \
             C_ma, lagrange_mult, mean_vectors = forward_pass_SVGPVAE(input_batch,
-                                                                     beta=beta,
+                                                                     beta=beta_arg,
                                                                      vae=VAE,
                                                                      svgp=SVGP_,
                                                                      C_ma=C_ma_placeholder,
                                                                      lagrange_mult=lagrange_mult_placeholder,
                                                                      alpha=alpha_placeholder,
-                                                                     kappa=np.sqrt(args.kappa_squared),
-                                                                     clipping_qs=args.clip_qs,
-                                                                     GECO=args.GECO,
-                                                                     bias_analysis=args.bias_analysis)
+                                                                     kappa=np.sqrt(kappa_squared),
+                                                                     clipping_qs=clip_qs,
+                                                                     GECO=GECO,
+                                                                     bias_analysis=bias_analysis)
 
             # forward pass standard VAE (for training regime from CASALE: VAE-GP-joint)
             recon_loss_VAE, KL_term_VAE, elbo_VAE, \
@@ -200,8 +200,8 @@ def run_experiment_SVGPVAE(args, args_dict, mnist=True):
             latent_samples_VAE = forward_pass_standard_VAE(input_batch,
                                                                          vae=VAE)
 
-        elif args.elbo == "VAE" or args.elbo == "CVAE":  # plain VAE or CVAE
-            CVAE = args.elbo == "CVAE"
+        elif elbo_arg == "VAE" or elbo_arg == "CVAE":  # plain VAE or CVAE
+            CVAE = elbo_arg == "CVAE"
 
             recon_loss, KL_term, elbo, \
             recon_data_Y, qnet_mu, qnet_var, latent_samples = forward_pass_standard_VAE(input_batch,
@@ -211,12 +211,12 @@ def run_experiment_SVGPVAE(args, args_dict, mnist=True):
         else:
             raise ValueError
         
-        if "SVGPVAE" in args.elbo:
-            train_encodings_means_placeholder = tf.placeholder(dtype=tf.float64, shape=(None, args.L))
-            train_encodings_vars_placeholder = tf.placeholder(dtype=tf.float64, shape=(None, args.L))
+        if "SVGPVAE" in elbo_arg:
+            train_encodings_means_placeholder = tf.placeholder(dtype=tf.float64, shape=(None, L))
+            train_encodings_vars_placeholder = tf.placeholder(dtype=tf.float64, shape=(None, L))
 
             qnet_mu_train, qnet_var_train, _ = batching_encode_SVGPVAE(input_batch, vae=VAE,
-                                                                    clipping_qs=args.clip_qs)
+                                                                    clipping_qs=clip_qs)
             recon_data_Y_test, \
             recon_loss_test = batching_predict_SVGPVAE(input_batch,
                                                        vae=VAE,
@@ -229,23 +229,23 @@ def run_experiment_SVGPVAE(args, args_dict, mnist=True):
             GP_l, GP_amp, GP_ov, GP_ip = SVGP_.variable_summary()
 
         # bias analysis
-        if args.bias_analysis:
+        if bias_analysis:
             means, vars = batching_encode_SVGPVAE_full(train_data_Y_placeholder,
-                                                       vae=VAE, clipping_qs=args.clip_qs)
+                                                       vae=VAE, clipping_qs=clip_qs)
             mean_vector_full_data = []
-            for l in range(args.L):
+            for l in range(L):
                 mean_vector_full_data.append(SVGP_.mean_vector_bias_analysis(index_points=train_aux_X_placeholder,
                                                                              y=means[:, l], noise=vars[:, l]))
 
-        if args.save_latents:
-            if "SVGPVAE" in args.elbo:
+        if save_latents:
+            if "SVGPVAE" in elbo_arg:
                 latent_samples_full = latent_samples_SVGPVAE(train_data_Y_placeholder, train_aux_X_placeholder,
-                                                             vae=VAE, svgp=SVGP_, clipping_qs=args.clip_qs)
+                                                             vae=VAE, svgp=SVGP_, clipping_qs=clip_qs)
             else:
                 latent_samples_full = latent_samples_VAE_full_train(train_data_Y_placeholder,
-                                                                    vae=VAE, clipping_qs=args.clip_qs)
+                                                                    vae=VAE, clipping_qs=clip_qs)
         # conditional generation for CVAE
-        if args.elbo == "CVAE":
+        if elbo_arg == "CVAE":
             recon_data_Y_test, recon_loss_test = predict_CVAE(images_train=train_data_Y_placeholder,
                                                               images_test=test_data_Y_placeholder,
                                                               aux_data_train=train_aux_X_placeholder,
@@ -258,7 +258,7 @@ def run_experiment_SVGPVAE(args, args_dict, mnist=True):
         lr = tf.placeholder(dtype=tf.float64, shape=())
         optimizer = tf.train.AdamOptimizer(learning_rate=lr)
 
-        if args.GECO:  # minimizing GECO objective
+        if GECO:  # minimizing GECO objective
             gradients = tf.gradients(elbo, train_vars)
         else:  # minimizing negative elbo
             gradients = tf.gradients(-elbo, train_vars)
@@ -267,7 +267,7 @@ def run_experiment_SVGPVAE(args, args_dict, mnist=True):
                                                global_step=global_step)
 
         # ====================== 4) Pandas saver ======================
-        if args.save:
+        if save:
             res_vars = [global_step,
                         elbo,
                         recon_loss,
@@ -288,7 +288,7 @@ def run_experiment_SVGPVAE(args, args_dict, mnist=True):
                          "max qnet_var",
                          "full qnet_var"]
 
-            if 'SVGPVAE' in args.elbo:
+            if 'SVGPVAE' in elbo_arg:
                 res_vars += [inside_elbo,
                              inside_elbo_recon,
                              inside_elbo_kl,
@@ -352,17 +352,17 @@ def run_experiment_SVGPVAE(args, args_dict, mnist=True):
 
         # ====================== 6) saver and GPU ======================
 
-        if args.save_model_weights:
+        if save_model_weights:
             saver = tf.train.Saver(max_to_keep=3)
 
-        gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=args.ram)
+        gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=ram)
 
         # ====================== 7) tf.session ======================
 
-        if "SVGPVAE" in args.elbo:
-            nr_epochs, training_regime = parse_opt_regime(args.opt_regime)
+        if "SVGPVAE" in elbo_arg:
+            nr_epochs, training_regime = parse_opt_regime(opt_regime)
         else:
-            nr_epochs = args.nr_epochs
+            nr_epochs = nr_epochs
 
         with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
 
@@ -381,39 +381,39 @@ def run_experiment_SVGPVAE(args, args_dict, mnist=True):
                 sess.run(training_init_op)
                 elbos, losses = [], []
                 start_time_epoch = time.time()
-                if args.bias_analysis:
+                if bias_analysis:
                     mean_vectors_arr = []
                 while True:
                     try:
-                        if args.GECO and "SVGPVAE" in args.elbo and training_regime[epoch] != 'VAE':
+                        if GECO and "SVGPVAE" in elbo_arg and training_regime[epoch] != 'VAE':
                             if first_step:
                                 alpha = 0.0
                             else:
-                                alpha = args.alpha
+                                alpha = alpha
                             _, g_s_, elbo_, C_ma_, lagrange_mult_, recon_loss_, mean_vectors_ = sess.run([optim_step, global_step,
                                                                               elbo, C_ma, lagrange_mult,
                                                                               recon_loss, mean_vectors],
-                                                                              {beta: args.beta, lr: args.lr,
+                                                                              {beta: beta_arg, lr: lr_arg,
                                                                                alpha_placeholder: alpha,
                                                                                C_ma_placeholder: C_ma_,
                                                                                lagrange_mult_placeholder: lagrange_mult_})
-                            if args.bias_analysis:
+                            if bias_analysis:
                                 mean_vectors_arr.append(mean_vectors_)
-                        elif args.elbo == "VAE" or args.elbo == "CVAE":
+                        elif elbo_arg == "VAE" or elbo_arg == "CVAE":
                             _, g_s_, elbo_, recon_loss_ = sess.run(
                                 [optim_step, global_step, elbo, recon_loss],
-                                {beta: args.beta, lr: args.lr})
+                                {beta: beta_arg, lr: lr_arg})
                         else:
                             _, g_s_, elbo_, recon_loss_ = sess.run([optim_step, global_step, elbo, recon_loss],
-                                                      {beta: args.beta, lr: args.lr,
-                                                       alpha_placeholder: args.alpha,
+                                                      {beta: beta_arg, lr: lr_arg,
+                                                       alpha_placeholder: alpha,
                                                        C_ma_placeholder: C_ma_,
                                                        lagrange_mult_placeholder: lagrange_mult_})
                         elbos.append(elbo_)
                         losses.append(recon_loss_)
                         first_step = False  # switch for initizalition of GECO algorithm
                     except tf.errors.OutOfRangeError:
-                        if args.bias_analysis:
+                        if bias_analysis:
                             mean_vector_full_data_ = sess.run(mean_vector_full_data,
                                                               {train_data_Y_placeholder: train_data_dict['data_Y'],
                                                                train_aux_X_placeholder: train_data_dict['aux_X']})
@@ -421,7 +421,7 @@ def run_experiment_SVGPVAE(args, args_dict, mnist=True):
                             bias = compute_bias_variance_mean_estimators(mean_vectors_arr, mean_vector_full_data_)
                             print("Bias for epoch {}: {}".format(epoch, bias))
                         if (epoch + 1) % 10 == 0:
-                            regime = training_regime[epoch] if "SVGPVAE" in args.elbo else "VAE"
+                            regime = training_regime[epoch] if "SVGPVAE" in elbo_arg else "VAE"
                             print('Epoch {}, opt regime {}, mean ELBO per batch: {}'.format(epoch, regime,
                                                                                             np.mean(elbos)))
                             MSE = np.sum(losses) / N_train
@@ -434,15 +434,15 @@ def run_experiment_SVGPVAE(args, args_dict, mnist=True):
                         break
 
                 # 7.2) calculate loss on eval set
-                if args.save and (epoch + 1) % 10 == 0 and "SVGPVAE" in args.elbo:
+                if save and (epoch + 1) % 10 == 0 and "SVGPVAE" in elbo_arg:
                     losses = []
-                    sess.run(eval_init_op, {eval_batch_size_placeholder: args.batch_size})
+                    sess.run(eval_init_op, {eval_batch_size_placeholder: batch_size})
                     while True:
                         try:
-                            recon_loss_ = sess.run(recon_loss, {beta: args.beta, lr: args.lr,
-                                                                     alpha_placeholder: args.alpha,
-                                                                     C_ma_placeholder: C_ma_,
-                                                                     lagrange_mult_placeholder: lagrange_mult_})
+                            recon_loss_ = sess.run(recon_loss, {beta: beta_arg, lr: lr_arg,
+                                                                alpha_placeholder: alpha,
+                                                                C_ma_placeholder: C_ma_,
+                                                                lagrange_mult_placeholder: lagrange_mult_})
                             losses.append(recon_loss_)
                         except tf.errors.OutOfRangeError:
                             MSE = np.sum(losses) / N_eval
@@ -450,53 +450,53 @@ def run_experiment_SVGPVAE(args, args_dict, mnist=True):
                             break
 
                 # 7.3) save metrics to Pandas df for model diagnostics
-                if args.save and (epoch + 1) % 10 == 0:
-                    if args.test_set_metrics:
+                if save and (epoch + 1) % 10 == 0:
+                    if test_set_metrics:
                         # sess.run(test_init_op, {test_batch_size_placeholder: N_test})  # see [update, 7.7.] above
-                        sess.run(test_init_op, {test_batch_size_placeholder: args.batch_size})
+                        sess.run(test_init_op, {test_batch_size_placeholder: batch_size})
                     else:
                         # sess.run(eval_init_op, {eval_batch_size_placeholder: N_eval})  # see [update, 7.7.] above
-                        sess.run(eval_init_op, {eval_batch_size_placeholder: args.batch_size})
+                        sess.run(eval_init_op, {eval_batch_size_placeholder: batch_size})
 
-                    if "SVGPVAE" in args.elbo:
+                    if "SVGPVAE" in elbo_arg:
                         # save elbo metrics depending on the type of forward pass (plain VAE vs SVGPVAE)
                         if training_regime[epoch] == 'VAE':
-                            new_res = sess.run(res_vars_VAE, {beta: args.beta})
+                            new_res = sess.run(res_vars_VAE, {beta: beta_arg})
                             res_saver_VAE(new_res, 1)
                         else:
-                            new_res = sess.run(res_vars, {beta: args.beta,
-                                                          alpha_placeholder: args.alpha,
+                            new_res = sess.run(res_vars, {beta: beta_arg,
+                                                          alpha_placeholder: alpha,
                                                           C_ma_placeholder: C_ma_,
                                                           lagrange_mult_placeholder: lagrange_mult_})
                             res_saver(new_res, 1)
 
                         # save GP params
-                        new_res_GP = sess.run(res_vars_GP, {beta: args.beta,
-                                                            alpha_placeholder: args.alpha,
+                        new_res_GP = sess.run(res_vars_GP, {beta: beta_arg,
+                                                            alpha_placeholder: alpha,
                                                             C_ma_placeholder: C_ma_,
                                                             lagrange_mult_placeholder: lagrange_mult_})
                         res_saver_GP(new_res_GP, 1)
                     else:
-                        new_res = sess.run(res_vars, {beta: args.beta})
+                        new_res = sess.run(res_vars, {beta: beta_arg})
                         res_saver(new_res, 1)
 
                 # 7.4) calculate loss on test set and visualize reconstructed data
                 if (epoch + 1) % 10 == 0:
 
                     losses, recon_data_Y_arr = [], []
-                    sess.run(test_init_op, {test_batch_size_placeholder: args.batch_size})
+                    sess.run(test_init_op, {test_batch_size_placeholder: batch_size})
                     # test set: reconstruction
                     while True:
                         try:
-                            if "SVGPVAE" in args.elbo:
+                            if "SVGPVAE" in elbo_arg:
                                 recon_loss_, recon_data_Y_ = sess.run([recon_loss, recon_data_Y],
-                                                                      {beta: args.beta,
-                                                                       alpha_placeholder: args.alpha,
+                                                                      {beta: beta_arg,
+                                                                       alpha_placeholder: alpha,
                                                                        C_ma_placeholder: C_ma_,
                                                                        lagrange_mult_placeholder: lagrange_mult_})
                             else:
                                 recon_loss_, recon_data_Y_ = sess.run([recon_loss, recon_data_Y],
-                                                                      {beta: args.beta})
+                                                                      {beta: beta_arg})
                             losses.append(recon_loss_)
                             recon_data_Y_arr.append(recon_data_Y_)
                         except tf.errors.OutOfRangeError:
@@ -506,14 +506,14 @@ def run_experiment_SVGPVAE(args, args_dict, mnist=True):
                             plot_mnist(test_data_dict['data_Y'],
                                        recon_data_Y_arr,
                                        title="Epoch: {}. Recon MSE test set:{}".format(epoch + 1, round(MSE, 4)))
-                            if args.show_pics:
+                            if show_pics:
                                 plt.show()
                                 plt.pause(0.01)
-                            if args.save:
+                            if save:
                                 plt.savefig(pic_folder + str(g_s_) + ".png")
                             break
                     # test set: conditional generation SVGPVAE
-                    if "SVGPVAE" in args.elbo:
+                    if "SVGPVAE" in elbo_arg:
 
                         # encode training data (in batches)
                         sess.run(training_init_op)
@@ -529,7 +529,7 @@ def run_experiment_SVGPVAE(args, args_dict, mnist=True):
                         vars = np.concatenate(vars, axis=0)
 
                         # predict test data (in batches)
-                        sess.run(test_init_op, {test_batch_size_placeholder: args.batch_size})
+                        sess.run(test_init_op, {test_batch_size_placeholder: batch_size})
                         recon_loss_cgen, recon_data_Y_cgen = [], []
                         while True:
                             try:
@@ -545,7 +545,7 @@ def run_experiment_SVGPVAE(args, args_dict, mnist=True):
                         recon_data_Y_cgen = np.concatenate(recon_data_Y_cgen, axis=0)
 
                     # test set: conditional generation CVAE
-                    if args.elbo == "CVAE":
+                    if elbo_arg == "CVAE":
                         recon_loss_cgen, recon_data_Y_cgen = sess.run([recon_loss_test, recon_data_Y_test],
                                             {train_aux_X_placeholder: train_data_dict['aux_X'],
                                              train_data_Y_placeholder: train_data_dict['data_Y'],
@@ -553,43 +553,43 @@ def run_experiment_SVGPVAE(args, args_dict, mnist=True):
                                              test_data_Y_placeholder: test_data_dict['data_Y']})
 
                     # test set: plot generations
-                    if args.elbo != "VAE":
+                    if elbo_arg != "VAE":
                         cgen_test_set_MSE.append((epoch, recon_loss_cgen))
                         print("Conditional generation MSE loss on test set for epoch {}: {}".format(epoch,
                                                                                                     recon_loss_cgen))
                         plot_mnist(test_data_dict['data_Y'],
                                    recon_data_Y_cgen,
                                    title="Epoch: {}. CGEN MSE test set:{}".format(epoch + 1, round(recon_loss_cgen, 4)))
-                        if args.show_pics:
+                        if show_pics:
                             plt.show()
                             plt.pause(0.01)
-                        if args.save:
+                        if save:
                             plt.savefig(pic_folder + str(g_s_) + "_cgen.png")
                             with open(pic_folder + "test_metrics.txt", "a") as f:
                                 f.write("{},{},{}\n".format(epoch + 1, round(MSE, 4), round(recon_loss_cgen, 4)))
 
                     # save model weights
-                    if args.save and args.save_model_weights:
+                    if save and save_model_weights:
                         saver.save(sess, chkpnt_dir + "model", global_step=g_s_)
 
             # log running time
             end_time = time.time()
             print("Running time for {} epochs: {}".format(nr_epochs, round(end_time - start_time, 2)))
 
-            if "SVGPVAE" in args.elbo:
+            if "SVGPVAE" in elbo_arg:
                 # report best test set cgen MSE achieved throughout training
                 best_cgen_MSE = sorted(cgen_test_set_MSE, key=lambda x: x[1])[0]
                 print("Best cgen MSE on test set throughout training at epoch {}: {}".format(best_cgen_MSE[0],
                                                                                              best_cgen_MSE[1]))
 
             # save images from conditional generation
-            if args.save and args.elbo != "VAE":
+            if save and elbo_arg != "VAE":
                 with open(chkpnt_dir + '/cgen_data_ys.p', 'wb') as test_pickle:
                     pickle.dump(recon_data_Y_cgen, test_pickle)
 
             # save latents
-            if args.save_latents:
-                if "SVGPVAE" in args.elbo:
+            if save_latents:
+                if "SVGPVAE" in elbo_arg:
                     latent_samples_full_ = sess.run(latent_samples_full,
                                                     {train_data_Y_placeholder: train_data_dict['data_Y'],
                                                      train_aux_X_placeholder: train_data_dict['aux_X']})
@@ -659,5 +659,15 @@ if __name__=="__main__":
 
     else:  # VAE, CVAE, SVGPVAE_Hensman, SVGPVAE_Titsias
         dict_ = vars(args_tabular)  # [update, 23.6.] to get around weirdest bug ever
-        run_experiment_SVGPVAE(args_tabular, dict_)
+        train_data_dict, eval_data_dict, test_data_dict = load_mnist_data(args_tabular, ending = args_tabular.dataset + '.p')
+        run_experiment_SVGPVAE(train_data_dict, eval_data_dict, test_data_dict,
+            args_tabular.L, args_tabular.M, args_tabular.nr_inducing_points, args_tabular.PCA,
+            args_tabular.ip_joint, args_tabular.GP_joint, args_tabular.ov_joint,
+            args_tabular.batch_size, args_tabular.disable_gpu, args_tabular.elbo,
+            args_tabular.beta, args_tabular.lr, args_tabular.base_dir, args_tabular.expid,
+            args_tabular.jitter, args_tabular.object_kernel_normalize, args_tabular.save,
+            args_tabular.save_latents, args_tabular.save_model_weights, args_tabular.show_pics,
+            args_tabular.kappa_squared, args_tabular.clip_qs, args_tabular.GECO,
+            args_tabular.bias_analysis, args_tabular.opt_regime, args_tabular.test_set_metrics,
+            args_tabular.mnist_data_path, args_tabular.ram, args_tabular.dataset, True)
 
