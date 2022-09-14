@@ -11,7 +11,7 @@ import json
 import tensorflow as tf
 
 from VAE_utils import spritesVAE, sprites_representation_network
-from SVGPVAE_model import forward_pass_SVGPVAE, forward_pass_standard_VAE_rotated_mnist, \
+from SVGPVAE_model import forward_pass_SVGPVAE_mnist, forward_pass_standard_VAE_rotated_mnist, \
                     batching_encode_SVGPVAE, precompute_GP_params_SVGPVAE, \
                     spritesSVGP, predict_SVGPVAE_sprites_test_character
 from utils import make_checkpoint_folder, pandas_res_saver, \
@@ -122,7 +122,7 @@ def run_experiment_sprites_SVGPVAE(args, dict_):
 
             elbo, recon_loss, KL_term, inside_elbo, ce_term, p_m, p_v, qnet_mu, qnet_var, recon_images, \
             inside_elbo_recon, inside_elbo_kl, _, \
-            C_ma, lagrange_mult, _ = forward_pass_SVGPVAE(data_batch=(frames, action_IDs),
+            C_ma, lagrange_mult, _ = forward_pass_SVGPVAE_mnist(data_batch=(frames, action_IDs),
                                                           beta=beta,
                                                           vae=VAE,
                                                           svgp=SVGP_,

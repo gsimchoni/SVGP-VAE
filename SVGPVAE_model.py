@@ -431,7 +431,7 @@ class dataSVGP(mainSVGP):
         else:
             self.object_vectors = None
 
-    def kernel_matrix(self, x, y, x_inducing=True, y_inducing=True, diag_only=False):
+    def kernel_matrix(self, x, y, x_inducing=True, y_inducing=True, diag_only=False, RE_cols=None, aux_cols=None):
         """
         Computes GP kernel matrix K(x,y). Kernel from Casale's paper is used for rotated MNIST data.
 
@@ -448,18 +448,21 @@ class dataSVGP(mainSVGP):
         # y_inducing = tf.shape(y)[0] == self.nr_inducing
 
         # unpack auxiliary data
+        range_object_not_inducing = range(len(RE_cols))
+        range_view = range(len(RE_cols), len(RE_cols) + len(aux_cols))
+        loc_object = len(RE_cols) + len(aux_cols)
         if self.object_vectors is None:
-            x_view, x_object, y_view, y_object = x[:, 1], x[:, 2:], y[:, 1], y[:, 2:]
+            x_view, x_object, y_view, y_object = x[:, range_view], x[:, loc_object:], y[:, range_view], y[:, loc_object:]
         else:
-            x_view, y_view = x[:, 1], y[:, 1]
+            x_view, y_view = x[:, range_view], y[:, range_view]
             if x_inducing:
-                x_object = x[:, 2:]
+                x_object = x[:, loc_object:]
             else:
-                x_object = tf.gather(self.object_vectors, tf.cast(x[:, 0], dtype=tf.int64))
+                x_object = tf.gather(self.object_vectors, tf.cast(x[:, range_object_not_inducing], dtype=tf.int64))
             if y_inducing:
-                y_object = y[:, 2:]
+                y_object = y[:, loc_object:]
             else:
-                y_object = tf.gather(self.object_vectors, tf.cast(y[:, 0], dtype=tf.int64))
+                y_object = tf.gather(self.object_vectors, tf.cast(y[:, range_object_not_inducing], dtype=tf.int64))
 
         # compute kernel matrix
         if diag_only:
@@ -1001,7 +1004,7 @@ def predict_CVAE(images_train, images_test, aux_data_train, aux_data_test, vae, 
     return recon_images_test, recon_loss
 
 
-def forward_pass_SVGPVAE(data_batch, beta, vae, svgp, C_ma, lagrange_mult, alpha,
+def forward_pass_SVGPVAE_mnist(data_batch, beta, vae, svgp, C_ma, lagrange_mult, alpha,
                          kappa, clipping_qs=False, GECO=False,
                          repr_NN=None, segment_ids=None, repeats=None, bias_analysis=False):
     """
@@ -1115,6 +1118,122 @@ def forward_pass_SVGPVAE(data_batch, beta, vae, svgp, C_ma, lagrange_mult, alpha
 
     return elbo, recon_loss, KL_term, inside_elbo, ce_term, p_m, p_v, qnet_mu, qnet_var, \
            recon_images, inside_elbo_recon, inside_elbo_kl, latent_samples, C_ma, lagrange_mult, mean_vectors
+
+
+def forward_pass_SVGPVAE_tabular(data_batch, beta, vae, svgp, C_ma, lagrange_mult, alpha,
+                         kappa, clipping_qs=False, GECO=False,
+                         repr_NN=None, segment_ids=None, repeats=None, bias_analysis=False):
+    """
+    Forward pass for SVGPVAE on tabular data.
+
+    :param data_batch: (data_Y, aux_X). data_Y dimension: (batch_size, p + len(RE_cols) + len(aux_cols)).
+        aux_X dimension: (batch_size, 10)
+    :param beta:
+    :param vae: VAE object
+    :param svgp: SVGP object
+    :param C_ma: average constraint from t-1 step (GECO)
+    :param lagrange_mult: lambda from t-1 step (GECO)
+    :param kappa: reconstruction level parameter for GECO
+    :param alpha: moving average parameter for GECO
+    :param clipping_qs: clipping of VAE posterior distribution (for numerical stability)
+    :param GECO: whether or not to use GECO algorithm for training
+    :param repr_NN: representation network (used only in case of SPRITES data)
+    :param segment_ids: Used only in case of SPRITES data.
+    :param repeats: Used only in case of SPRITES data.
+    :param bias_analysis:
+
+    :return:
+    """
+
+    data_Y, aux_X = data_batch
+    y_shape = data_Y.get_shape()
+    K = tf.cast(tf.reduce_prod(y_shape[1:]), dtype=vae.dtype)
+    b = tf.cast(tf.shape(data_Y)[0], dtype=vae.dtype)  # batch_size
+
+    # ENCODER NETWORK
+    qnet_mu, qnet_var = vae.encode(data_Y)
+    L = tf.cast(qnet_mu.get_shape()[1], dtype=vae.dtype)
+
+    # clipping of VAE posterior variance
+    if clipping_qs:
+        qnet_var = tf.clip_by_value(qnet_var, 1e-3, 10)
+
+    if repr_NN is not None:  # use representation network for character vectors
+        aux_X = aux_data_SVGPVAE_sprites(data_batch=data_batch, repr_nn=repr_NN,
+                                            segment_ids=segment_ids, repeats=repeats)
+
+    # SVGP: inside-ELBO term (L_2 or L_3), approx posterior distribution
+    inside_elbo_recon, inside_elbo_kl = [], []
+    p_m, p_v = [], []
+    for l in range(qnet_mu.get_shape()[1]):  # iterate over latent dimensions
+        p_m_l, p_v_l, mu_hat_l, A_hat_l = svgp.approximate_posterior_params(aux_X, aux_X,
+                                                                            qnet_mu[:, l], qnet_var[:, l])
+        inside_elbo_recon_l,  inside_elbo_kl_l = svgp.variational_loss(x=aux_X, y=qnet_mu[:, l],
+                                                                       noise=qnet_var[:, l], mu_hat=mu_hat_l,
+                                                                       A_hat=A_hat_l)
+
+        inside_elbo_recon.append(inside_elbo_recon_l)
+        inside_elbo_kl.append(inside_elbo_kl_l)
+        p_m.append(p_m_l)
+        p_v.append(p_v_l)
+
+    inside_elbo_recon = tf.reduce_sum(inside_elbo_recon)
+    inside_elbo_kl = tf.reduce_sum(inside_elbo_kl)
+
+    if svgp.titsias:
+        inside_elbo = inside_elbo_recon - inside_elbo_kl
+    else:
+        inside_elbo = inside_elbo_recon - (b / svgp.N_train) * inside_elbo_kl
+
+    p_m = tf.stack(p_m, axis=1)
+    p_v = tf.stack(p_v, axis=1)
+
+    if repr_NN:  # for numerical stability in SPRITES experiment
+        p_v = tf.clip_by_value(p_v, 1e-4, 100)
+
+    # cross entropy term
+    ce_term = gauss_cross_entropy(p_m, p_v, qnet_mu, qnet_var)
+    ce_term = tf.reduce_sum(ce_term)
+
+    KL_term = -ce_term + inside_elbo
+
+    # SAMPLE
+    epsilon = tf.random.normal(shape=tf.shape(p_m), dtype=vae.dtype)
+    latent_samples = p_m + epsilon * tf.sqrt(p_v)
+
+    # DECODER NETWORK
+    recon_data_Y_logits = vae.decode(latent_samples)
+    recon_data_Y = recon_data_Y_logits
+
+    if GECO:
+        recon_loss = tf.reduce_mean((data_Y - recon_data_Y_logits) ** 2, axis=(1, 2, 3))
+        recon_loss = tf.reduce_sum(recon_loss - kappa**2)
+        C_ma = alpha * C_ma + (1 - alpha) * recon_loss / b
+
+        elbo = - KL_term + lagrange_mult * (recon_loss/b + tf.stop_gradient(C_ma - recon_loss/b))
+
+        lagrange_mult = lagrange_mult * tf.exp(C_ma)
+
+    else:
+        recon_loss = tf.reduce_sum((data_Y - recon_data_Y_logits) ** 2)
+
+        # ELBO
+        # beta plays role of sigma_gaussian_decoder here (\lambda(\sigma_y) in Casale paper)
+        # K and L are not part of ELBO. They are used in loss objective to account for the fact that magnitudes of
+        # reconstruction and KL terms depend on number of pixels (K) and number of latent GPs used (L), respectively
+        recon_loss = recon_loss / K
+        elbo = - recon_loss + (beta / L) * KL_term
+
+    # bias analysis
+    if bias_analysis:
+        mean_vectors = []
+        for l in range(qnet_mu.get_shape()[1]):
+            mean_vectors.append(svgp.mean_vector_bias_analysis(aux_X, qnet_mu[:, l], qnet_var[:, l]))
+    else:
+        mean_vectors = tf.constant(1.0)  # dummy placeholder
+
+    return elbo, recon_loss, KL_term, inside_elbo, ce_term, p_m, p_v, qnet_mu, qnet_var, \
+           recon_data_Y, inside_elbo_recon, inside_elbo_kl, latent_samples, C_ma, lagrange_mult, mean_vectors
 
 
 def batching_encode_SVGPVAE(data_batch, vae, clipping_qs=False, repr_nn=None,

@@ -20,10 +20,10 @@ if __package__ is None or __package__ == '':
                     print_trainable_vars, parse_opt_regime, compute_bias_variance_mean_estimators, \
                     make_checkpoint_folder, pandas_res_saver, latent_samples_SVGPVAE, latent_samples_VAE_full_train
     from VAE_utils import mnistVAE, mnistCVAE, SVIGP_Hensman_decoder, tabularVAE
-    from SVGPVAE_model import batching_predict_SVGPVAE, dataSVGP, forward_pass_SVGPVAE, forward_pass_standard_VAE, \
+    from SVGPVAE_model import batching_predict_SVGPVAE, dataSVGP, forward_pass_SVGPVAE_mnist, forward_pass_standard_VAE, \
                             mnistSVGP, forward_pass_standard_VAE_rotated_mnist, \
                             batching_encode_SVGPVAE, batching_encode_SVGPVAE_full, \
-                            bacthing_predict_SVGPVAE_rotated_mnist, predict_CVAE
+                            forward_pass_SVGPVAE_tabular, predict_CVAE
     from GPVAE_Casale_model import encode, casaleGP, forward_pass_Casale, predict_test_set_Casale, sort_train_data
     from SVIGP_Hensman_model import SVIGP_Hensman, forward_pass_deep_SVIGP_Hensman, predict_deep_SVIGP_Hensman
 else:
@@ -31,8 +31,8 @@ else:
                     print_trainable_vars, parse_opt_regime, compute_bias_variance_mean_estimators, \
                     make_checkpoint_folder, pandas_res_saver, latent_samples_SVGPVAE, latent_samples_VAE_full_train
     from .VAE_utils import mnistVAE, mnistCVAE, SVIGP_Hensman_decoder, tabularVAE
-    from .SVGPVAE_model import batching_predict_SVGPVAE, dataSVGP, forward_pass_SVGPVAE, forward_pass_standard_VAE, \
-                            mnistSVGP, forward_pass_standard_VAE_rotated_mnist, \
+    from .SVGPVAE_model import batching_predict_SVGPVAE, dataSVGP, forward_pass_SVGPVAE_mnist, forward_pass_standard_VAE, \
+                            mnistSVGP, forward_pass_SVGPVAE_tabular, \
                             batching_encode_SVGPVAE, batching_encode_SVGPVAE_full, \
                             bacthing_predict_SVGPVAE_rotated_mnist, predict_CVAE
 
@@ -176,7 +176,7 @@ def run_experiment_SVGPVAE(train_data_dict, eval_data_dict, test_data_dict,
 
             elbo, recon_loss, KL_term, inside_elbo, ce_term, p_m, p_v, qnet_mu, qnet_var, recon_data_Y, \
             inside_elbo_recon, inside_elbo_kl, latent_samples, \
-            C_ma, lagrange_mult, mean_vectors = forward_pass_SVGPVAE(input_batch,
+            C_ma, lagrange_mult, mean_vectors = forward_pass_SVGPVAE_tabular(input_batch,
                                                                      beta=beta_arg,
                                                                      vae=VAE,
                                                                      svgp=SVGP_,
@@ -191,8 +191,7 @@ def run_experiment_SVGPVAE(train_data_dict, eval_data_dict, test_data_dict,
             # forward pass standard VAE (for training regime from CASALE: VAE-GP-joint)
             recon_loss_VAE, KL_term_VAE, elbo_VAE, \
             recon_data_Y_VAE, qnet_mu_VAE, qnet_var_VAE, \
-            latent_samples_VAE = forward_pass_standard_VAE(input_batch,
-                                                                         vae=VAE)
+            latent_samples_VAE = forward_pass_standard_VAE(input_batch, vae=VAE)
 
         elif elbo_arg == "VAE" or elbo_arg == "CVAE":  # plain VAE or CVAE
             CVAE = elbo_arg == "CVAE"

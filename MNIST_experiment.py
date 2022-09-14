@@ -9,14 +9,17 @@ import numpy as np
 import matplotlib as mpl
 mpl.use('Agg')
 import matplotlib.pyplot as plt
-import tensorflow as tf
+import tensorflow._api.v2.compat.v1 as tf
+tf.disable_v2_behavior()
+# Problem with local TF setup, works fine in Google Colab
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 import tensorflow_probability as tfp
 
 from utils import plot_mnist, generate_init_inducing_points, import_rotated_mnist, \
                   print_trainable_vars, parse_opt_regime, compute_bias_variance_mean_estimators, \
                   make_checkpoint_folder, pandas_res_saver, latent_samples_SVGPVAE, latent_samples_VAE_full_train
 from VAE_utils import mnistVAE, mnistCVAE, SVIGP_Hensman_decoder
-from SVGPVAE_model import forward_pass_SVGPVAE, mnistSVGP, forward_pass_standard_VAE_rotated_mnist, \
+from SVGPVAE_model import forward_pass_SVGPVAE_mnist, mnistSVGP, forward_pass_standard_VAE_rotated_mnist, \
                           batching_encode_SVGPVAE, batching_encode_SVGPVAE_full, \
                           bacthing_predict_SVGPVAE_rotated_mnist, predict_CVAE
 
@@ -121,7 +124,7 @@ def run_experiment_rotated_mnist_SVGPVAE(args, args_dict):
 
             elbo, recon_loss, KL_term, inside_elbo, ce_term, p_m, p_v, qnet_mu, qnet_var, recon_images, \
             inside_elbo_recon, inside_elbo_kl, latent_samples, \
-            C_ma, lagrange_mult, mean_vectors = forward_pass_SVGPVAE(input_batch,
+            C_ma, lagrange_mult, mean_vectors = forward_pass_SVGPVAE_mnist(input_batch,
                                                                      beta=beta,
                                                                      vae=VAE,
                                                                      svgp=SVGP_,
