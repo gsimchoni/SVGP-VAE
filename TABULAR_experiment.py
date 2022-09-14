@@ -20,7 +20,7 @@ if __package__ is None or __package__ == '':
                     print_trainable_vars, parse_opt_regime, compute_bias_variance_mean_estimators, \
                     make_checkpoint_folder, pandas_res_saver, latent_samples_SVGPVAE, latent_samples_VAE_full_train
     from VAE_utils import mnistVAE, mnistCVAE, SVIGP_Hensman_decoder, tabularVAE
-    from SVGPVAE_model import batching_predict_SVGPVAE, dataSVGP, forward_pass_SVGPVAE_mnist, forward_pass_standard_VAE, \
+    from SVGPVAE_model import batching_predict_SVGPVAE, TabularDataSVGP, forward_pass_SVGPVAE_mnist, forward_pass_standard_VAE, \
                             mnistSVGP, forward_pass_standard_VAE_rotated_mnist, \
                             batching_encode_SVGPVAE, batching_encode_SVGPVAE_full, \
                             forward_pass_SVGPVAE_tabular, predict_CVAE
@@ -31,7 +31,7 @@ else:
                     print_trainable_vars, parse_opt_regime, compute_bias_variance_mean_estimators, \
                     make_checkpoint_folder, pandas_res_saver, latent_samples_SVGPVAE, latent_samples_VAE_full_train
     from .VAE_utils import mnistVAE, mnistCVAE, SVIGP_Hensman_decoder, tabularVAE
-    from .SVGPVAE_model import batching_predict_SVGPVAE, dataSVGP, forward_pass_SVGPVAE_mnist, forward_pass_standard_VAE, \
+    from .SVGPVAE_model import batching_predict_SVGPVAE, TabularDataSVGP, forward_pass_SVGPVAE_mnist, forward_pass_standard_VAE, \
                             mnistSVGP, forward_pass_SVGPVAE_tabular, \
                             batching_encode_SVGPVAE, batching_encode_SVGPVAE_full, \
                             bacthing_predict_SVGPVAE_rotated_mnist, predict_CVAE
@@ -69,7 +69,7 @@ def tensor_slice(data_dict, batch_size, placeholder):
 
 def run_experiment_SVGPVAE(train_data_dict, eval_data_dict, test_data_dict,
     L, q, batch_size, nr_epochs, n_neurons, dropout, activation, elbo_arg, M,
-    nr_inducing_points, RE_cols, init_PCA=True,
+    nr_inducing_points, RE_cols, aux_cols, init_PCA=True,
     ip_joint=True, GP_joint=True, ov_joint=True,
     disable_gpu=True, beta_arg=0.001, lr_arg=0.001, base_dir=os.getcwd(), expid='debug_TABULAR',
     jitter=0.000001, object_kernel_normalize=False, save=False, save_latents=False,
@@ -163,11 +163,12 @@ def run_experiment_SVGPVAE(train_data_dict, eval_data_dict, test_data_dict,
                 object_vectors_init = None
 
             # init SVGP object
-            SVGP_ = dataSVGP(titsias=titsias, fixed_inducing_points=ip_joint,
+            SVGP_ = TabularDataSVGP(titsias=titsias, fixed_inducing_points=ip_joint,
                               initial_inducing_points=inducing_points_init,
                               fixed_gp_params=GP_joint, object_vectors_init=object_vectors_init, name='main',
                               jitter=jitter, N_train=N_train,
-                              L=L, K_obj_normalize=object_kernel_normalize)
+                              L=L, K_obj_normalize=object_kernel_normalize,
+                              RE_cols=RE_cols, aux_cols=aux_cols)
 
             # forward pass SVGPVAE
             C_ma_placeholder = tf.placeholder(dtype=tf.float64, shape=())
