@@ -68,7 +68,8 @@ def tensor_slice(data_dict, batch_size, placeholder):
     return data, batch_size_placeholder
 
 def run_experiment_SVGPVAE(train_data_dict, eval_data_dict, test_data_dict,
-    L, batch_size, nr_epochs, n_neurons, dropout, activation, elbo_arg, M, nr_inducing_points, init_PCA=True,
+    L, q, batch_size, nr_epochs, n_neurons, dropout, activation, elbo_arg, M,
+    nr_inducing_points, RE_cols, init_PCA=True,
     ip_joint=True, GP_joint=True, ov_joint=True,
     disable_gpu=True, beta_arg=0.001, lr_arg=0.001, base_dir=os.getcwd(), expid='debug_TABULAR',
     jitter=0.000001, object_kernel_normalize=False, save=False, save_latents=False,
@@ -154,21 +155,10 @@ def run_experiment_SVGPVAE(train_data_dict, eval_data_dict, test_data_dict,
             GP_joint = not GP_joint
             if ov_joint:
                 if init_PCA:  # use PCA embeddings for initialization of object vectors
-                    if mnist:
-                        object_vectors_init = pickle.load(open(mnist_data_path +
-                                                            'pca_ov_init{}.p'.format(dataset), 'rb'))
-                    else:
-                        # subsample N=400 (q) **unique** objects, not like here
-                        indices = random.sample(list(range(train_data_dict['data_Y'].shape[0])), 400)
-                        latent_dim_object_vector=8
-                        pca_df = train_data_dict['data_Y'][indices].copy().reshape((train_data_dict['data_Y'][indices].shape[0], -1))
-                        pca = PCA(n_components=latent_dim_object_vector)
-                        object_vectors_init = pca.fit_transform(pca_df)
-                        print("Explained variance ratio PCA: {}".format(pca.explained_variance_ratio_))
+                    PC_cols = train_data_dict['aux_X'].columns[train_data_dict['aux_X'].columns.str.startswith('PC')]
+                    object_vectors_init = train_data_dict['aux_X'].groupby('z0')[PC_cols].mean()
                 else:  # initialize object vectors randomly
-                    # TODO: replace 400 with "q" objects
-                    object_vectors_init = np.random.normal(0, 1.5,
-                                                           len(dataset)*400*M).reshape(len(dataset)*400, M)
+                    object_vectors_init = np.random.normal(0, 1.5, q * M).reshape(q, M)
             else:
                 object_vectors_init = None
 
