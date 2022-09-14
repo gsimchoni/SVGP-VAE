@@ -690,53 +690,68 @@ def plot_mnist(arr, recon_arr, title, nr_images=8, seed=0):
     plt.draw()
 
 
-def generate_init_inducing_points_general(train_data, n=5, nr_angles=16, seed_init=0, remove_test_angle=None,
-                                  PCA=False, M=8, seed=0):
+def generate_init_inducing_points_tabular(train_data, aux_cols, sampled_aux_cols, n_samp_per_aux=5, nr_aux_units=16, seed_init=0,
+    PCA=False, M=None, seed=0):
     """
-    Generate initial inducing points for rotated MNIST data.
-    For each angle we sample n object vectors from empirical distribution of PCA embeddings of training data.
+    Generate initial inducing points for tabular data.
+    For each angle/location/time we sample n object vectors from empirical distribution of PCA embeddings of training data.
 
-    :param n: how many object vectors per each angle to sample
-    :param nr_angles: number of angles between [0, 2pi)
-    :param remove_test_angle: if None, test angle is kept in inducing point set. Else if index between 0 and nr_angles-1
-        is passed, this angle is removed (to investigate possible data leakage through inducing points).
+    :param n: how many object vectors per each angle/location/time to sample
+    :param nr_aux_units: number of angles/locations between [min, max) (e.g. [0, 2*pi)), for 2D locations should be some n**2 where n is int
     :param PCA: whether or not to use PCA initialization
-    :param M: dimension of GPLVM vectors
+    :param M: dimension of GPLVM vectors (if none, compute them as aux_data.shape[1] - len(aux_cols))
+    :param aux_cols: column names in aux_X that represent actual aux data (id, angle/location/time)
+    :param sampled_aux_cols: aux column(s) from which space to sample (e.g. angle or lon/lat or time)
     """
 
     random.seed(seed)
 
     data = train_data['aux_X']
-    # TODO: when not MNIST there aren't necessary angles...
-    angles = np.linspace(0, 2 * np.pi, nr_angles + 1)[:-1]
+    aux_data = data.drop(aux_cols, axis=1).values
+    if M is None:
+        M = data.shape[1] - len(aux_cols)
+    aux_units_list = []
+    n_aux_cols = len(sampled_aux_cols)
+    if n_aux_cols == 1:
+        aux_units = np.linspace(data[sampled_aux_cols[0]].min(), data[sampled_aux_cols[0]].max(), nr_aux_units + 1)[:-1]
+    elif n_aux_cols == 2:
+        for aux_col in sampled_aux_cols:
+            aux_units = np.linspace(data[aux_col].min(), data[aux_col].max(), int(np.sqrt(nr_aux_units)) + 1)[:-1]
+            aux_units_list.append(aux_units)
+        aux_units = np.stack(aux_units_list, axis=1)
+        xx, yy = np.meshgrid(*aux_units_list)
+        aux_units = np.array((xx.ravel(), yy.ravel())).T
+    else:
+        raise ValueError("Sqrt(nr_aux_units) is only for 2D fields")
+
     inducing_points = []
 
-    if n < 1:
-        indices = random.sample(list(range(nr_angles)), int(n*nr_angles))
-        n = 1
+    if n_samp_per_aux < 1:
+        indices = random.choices(list(range(nr_aux_units)), k = int(n_samp_per_aux * nr_aux_units))
+        n_samp_per_aux = 1
     else:
-        indices = range(nr_angles)
+        indices = range(nr_aux_units)
 
     for i in indices:
-
-        # skip test angle
-        if i == remove_test_angle:
-            continue
 
         # for reproducibility
         seed = seed_init + i
 
         if PCA:
             obj_vectors = []
-            for pca_ax in range(2, 2 + M):
+            for pca_ax in range(M):
                 # sample from empirical dist of PCA embeddings
-                obj_vectors.append(scipy.stats.gaussian_kde(data[:, pca_ax]).resample(int(n), seed=seed))
+                obj_vectors.append(scipy.stats.gaussian_kde(aux_data[:, pca_ax]).resample(int(n_samp_per_aux), seed=seed))
 
             obj_vectors = np.concatenate(tuple(obj_vectors)).T
         else:
-            obj_vectors = np.random.normal(0, 1.5, int(n)*M).reshape(int(n), M)
+            obj_vectors = np.random.normal(0, 1.5, int(n_samp_per_aux) * M).reshape(int(n_samp_per_aux), M)
 
-        obj_vectors = np.hstack((np.full((int(n), 1), angles[i]), obj_vectors))  # add angle to each inducing point
+        if n_aux_cols == 1:
+            d = aux_units[i]
+        else:
+            d = aux_units[i][np.newaxis, :]
+        obj_vectors = np.hstack((np.full((int(n_samp_per_aux), n_aux_cols), d), obj_vectors))  # add angle to each inducing point
         inducing_points.append(obj_vectors)
 
     inducing_points = np.concatenate(tuple(inducing_points))

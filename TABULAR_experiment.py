@@ -16,7 +16,7 @@ tf.disable_v2_behavior()
 import tensorflow_probability as tfp
 
 if __package__ is None or __package__ == '':
-    from utils import generate_init_inducing_points_general, plot_mnist, generate_init_inducing_points, import_rotated_mnist, \
+    from utils import generate_init_inducing_points_tabular, plot_mnist, generate_init_inducing_points, import_rotated_mnist, \
                     print_trainable_vars, parse_opt_regime, compute_bias_variance_mean_estimators, \
                     make_checkpoint_folder, pandas_res_saver, latent_samples_SVGPVAE, latent_samples_VAE_full_train
     from VAE_utils import mnistVAE, mnistCVAE, SVIGP_Hensman_decoder, tabularVAE
@@ -27,7 +27,7 @@ if __package__ is None or __package__ == '':
     from GPVAE_Casale_model import encode, casaleGP, forward_pass_Casale, predict_test_set_Casale, sort_train_data
     from SVIGP_Hensman_model import SVIGP_Hensman, forward_pass_deep_SVIGP_Hensman, predict_deep_SVIGP_Hensman
 else:
-    from .utils import generate_init_inducing_points_general, plot_mnist, generate_init_inducing_points, import_rotated_mnist, \
+    from .utils import generate_init_inducing_points_tabular, plot_mnist, generate_init_inducing_points, import_rotated_mnist, \
                     print_trainable_vars, parse_opt_regime, compute_bias_variance_mean_estimators, \
                     make_checkpoint_folder, pandas_res_saver, latent_samples_SVGPVAE, latent_samples_VAE_full_train
     from .VAE_utils import mnistVAE, mnistCVAE, SVIGP_Hensman_decoder, tabularVAE
@@ -68,7 +68,7 @@ def tensor_slice(data_dict, batch_size, placeholder):
     return data, batch_size_placeholder
 
 def run_experiment_SVGPVAE(train_data_dict, eval_data_dict, test_data_dict,
-    L, batch_size, nr_epochs, n_neurons, dropout, activation, elbo_arg, M=8, nr_inducing_points=2, init_PCA=True,
+    L, batch_size, nr_epochs, n_neurons, dropout, activation, elbo_arg, M, nr_inducing_points, init_PCA=True,
     ip_joint=True, GP_joint=True, ov_joint=True,
     disable_gpu=True, beta_arg=0.001, lr_arg=0.001, base_dir=os.getcwd(), expid='debug_TABULAR',
     jitter=0.000001, object_kernel_normalize=False, save=False, save_latents=False,
@@ -143,10 +143,11 @@ def run_experiment_SVGPVAE(train_data_dict, eval_data_dict, test_data_dict,
         test_data_Y_placeholder = tf.placeholder(dtype=tf.float64, shape=y_shape)
 
         if "SVGPVAE" in elbo_arg:  # SVGPVAE
-            inducing_points_init = generate_init_inducing_points_general(
+            inducing_points_init = generate_init_inducing_points_tabular(
                                                                  train_data_dict,
-                                                                 n=nr_inducing_points,
-                                                                 remove_test_angle=None,
+                                                                 ['z0', 'D1', 'D2'],
+                                                                 ['D1', 'D2'],
+                                                                 n_samp_per_aux=nr_inducing_points,
                                                                  PCA=init_PCA, M=M)
             titsias = 'Titsias' in elbo_arg
             ip_joint = not ip_joint
