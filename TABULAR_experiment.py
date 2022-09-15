@@ -71,7 +71,7 @@ def run_experiment_SVGPVAE(train_data_dict, eval_data_dict, test_data_dict,
     L, q, batch_size, nr_epochs, n_neurons, dropout, activation, elbo_arg, M,
     nr_inducing_units, nr_inducing_per_unit, RE_cols, aux_cols, init_PCA=True,
     ip_joint=True, GP_joint=True, ov_joint=True,
-    disable_gpu=True, beta_arg=0.001, lr_arg=0.001, base_dir=os.getcwd(), expid='debug_TABULAR',
+    disable_gpu=True, beta_arg=0.001, lr_arg=0.001, alpha_arg=0.99, base_dir=os.getcwd(), expid='debug_TABULAR',
     jitter=0.000001, object_kernel_normalize=False, save=False, save_latents=False,
     save_model_weights=False, show_pics=False, kappa_squared=0.020, clip_qs=True,
     GECO=True, bias_analysis=False, opt_regime=['joint-1000'], test_set_metrics=False,
@@ -138,9 +138,9 @@ def run_experiment_SVGPVAE(train_data_dict, eval_data_dict, test_data_dict,
 
         # placeholders
         y_shape = (None,) + train_data_dict['data_Y'].shape[1:]
-        train_aux_X_placeholder = tf.placeholder(dtype=tf.float64, shape=(None, len(aux_cols) + M))
+        train_aux_X_placeholder = tf.placeholder(dtype=tf.float64, shape=(None, len(RE_cols) + len(aux_cols) + M))
         train_data_Y_placeholder = tf.placeholder(dtype=tf.float64, shape=y_shape)
-        test_aux_X_placeholder = tf.placeholder(dtype=tf.float64, shape=(None, len(aux_cols) + M))
+        test_aux_X_placeholder = tf.placeholder(dtype=tf.float64, shape=(None, len(RE_cols) + len(aux_cols) + M))
         test_data_Y_placeholder = tf.placeholder(dtype=tf.float64, shape=y_shape)
 
         if "SVGPVAE" in elbo_arg:  # SVGPVAE
@@ -179,7 +179,7 @@ def run_experiment_SVGPVAE(train_data_dict, eval_data_dict, test_data_dict,
             elbo, recon_loss, KL_term, inside_elbo, ce_term, p_m, p_v, qnet_mu, qnet_var, recon_data_Y, \
             inside_elbo_recon, inside_elbo_kl, latent_samples, \
             C_ma, lagrange_mult, mean_vectors = forward_pass_SVGPVAE_tabular(input_batch,
-                                                                     beta=beta_arg,
+                                                                     beta=beta,
                                                                      vae=VAE,
                                                                      svgp=SVGP_,
                                                                      C_ma=C_ma_placeholder,
@@ -371,7 +371,6 @@ def run_experiment_SVGPVAE(train_data_dict, eval_data_dict, test_data_dict,
             start_time = time.time()
             cgen_test_set_MSE = []
             for epoch in range(nr_epochs):
-                print(epoch)
 
                 # 7.1) train for one epoch
                 sess.run(training_init_op)
@@ -385,7 +384,7 @@ def run_experiment_SVGPVAE(train_data_dict, eval_data_dict, test_data_dict,
                             if first_step:
                                 alpha = 0.0
                             else:
-                                alpha = alpha
+                                alpha = alpha_arg
                             _, g_s_, elbo_, C_ma_, lagrange_mult_, recon_loss_, mean_vectors_ = sess.run([optim_step, global_step,
                                                                               elbo, C_ma, lagrange_mult,
                                                                               recon_loss, mean_vectors],
@@ -402,7 +401,7 @@ def run_experiment_SVGPVAE(train_data_dict, eval_data_dict, test_data_dict,
                         else:
                             _, g_s_, elbo_, recon_loss_ = sess.run([optim_step, global_step, elbo, recon_loss],
                                                       {beta: beta_arg, lr: lr_arg,
-                                                       alpha_placeholder: alpha,
+                                                       alpha_placeholder: alpha_arg,
                                                        C_ma_placeholder: C_ma_,
                                                        lagrange_mult_placeholder: lagrange_mult_})
                         elbos.append(elbo_)
@@ -436,7 +435,7 @@ def run_experiment_SVGPVAE(train_data_dict, eval_data_dict, test_data_dict,
                     while True:
                         try:
                             recon_loss_ = sess.run(recon_loss, {beta: beta_arg, lr: lr_arg,
-                                                                alpha_placeholder: alpha,
+                                                                alpha_placeholder: alpha_arg,
                                                                 C_ma_placeholder: C_ma_,
                                                                 lagrange_mult_placeholder: lagrange_mult_})
                             losses.append(recon_loss_)
@@ -461,14 +460,14 @@ def run_experiment_SVGPVAE(train_data_dict, eval_data_dict, test_data_dict,
                             res_saver_VAE(new_res, 1)
                         else:
                             new_res = sess.run(res_vars, {beta: beta_arg,
-                                                          alpha_placeholder: alpha,
+                                                          alpha_placeholder: alpha_arg,
                                                           C_ma_placeholder: C_ma_,
                                                           lagrange_mult_placeholder: lagrange_mult_})
                             res_saver(new_res, 1)
 
                         # save GP params
                         new_res_GP = sess.run(res_vars_GP, {beta: beta_arg,
-                                                            alpha_placeholder: alpha,
+                                                            alpha_placeholder: alpha_arg,
                                                             C_ma_placeholder: C_ma_,
                                                             lagrange_mult_placeholder: lagrange_mult_})
                         res_saver_GP(new_res_GP, 1)
@@ -487,7 +486,7 @@ def run_experiment_SVGPVAE(train_data_dict, eval_data_dict, test_data_dict,
                             if "SVGPVAE" in elbo_arg:
                                 recon_loss_, recon_data_Y_ = sess.run([recon_loss, recon_data_Y],
                                                                       {beta: beta_arg,
-                                                                       alpha_placeholder: alpha,
+                                                                       alpha_placeholder: alpha_arg,
                                                                        C_ma_placeholder: C_ma_,
                                                                        lagrange_mult_placeholder: lagrange_mult_})
                             else:
@@ -499,9 +498,9 @@ def run_experiment_SVGPVAE(train_data_dict, eval_data_dict, test_data_dict,
                             MSE = np.sum(losses) / N_test
                             print('MSE loss on test set for epoch {} : {}'.format(epoch, MSE))
                             recon_data_Y_arr = np.concatenate(tuple(recon_data_Y_arr))
-                            plot_mnist(test_data_dict['data_Y'],
-                                       recon_data_Y_arr,
-                                       title="Epoch: {}. Recon MSE test set:{}".format(epoch + 1, round(MSE, 4)))
+                            # plot_mnist(test_data_dict['data_Y'],
+                            #            recon_data_Y_arr,
+                            #            title="Epoch: {}. Recon MSE test set:{}".format(epoch + 1, round(MSE, 4)))
                             if show_pics:
                                 plt.show()
                                 plt.pause(0.01)
@@ -553,9 +552,9 @@ def run_experiment_SVGPVAE(train_data_dict, eval_data_dict, test_data_dict,
                         cgen_test_set_MSE.append((epoch, recon_loss_cgen))
                         print("Conditional generation MSE loss on test set for epoch {}: {}".format(epoch,
                                                                                                     recon_loss_cgen))
-                        plot_mnist(test_data_dict['data_Y'],
-                                   recon_data_Y_cgen,
-                                   title="Epoch: {}. CGEN MSE test set:{}".format(epoch + 1, round(recon_loss_cgen, 4)))
+                        # plot_mnist(test_data_dict['data_Y'],
+                        #            recon_data_Y_cgen,
+                        #            title="Epoch: {}. CGEN MSE test set:{}".format(epoch + 1, round(recon_loss_cgen, 4)))
                         if show_pics:
                             plt.show()
                             plt.pause(0.01)
