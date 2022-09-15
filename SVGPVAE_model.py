@@ -639,8 +639,9 @@ class TabularDataSVGP(MainTabularSVGP):
             self.object_vectors = None
         
         # RE/aux colnames
-        self.RE_cols = RE_cols
-        self.aux_cols = aux_cols
+        self.n_RE_cols = len(RE_cols)
+        self.n_aux_cols = len(aux_cols)
+        assert self.n_RE_cols == 1, "No. of RE cols > 1 not implemented"
 
     def kernel_matrix(self, x, y, x_inducing=True, y_inducing=True, diag_only=False):
         """
@@ -659,28 +660,31 @@ class TabularDataSVGP(MainTabularSVGP):
         # y_inducing = tf.shape(y)[0] == self.nr_inducing
 
         # unpack auxiliary data
-        n_RE_cols = len(self.RE_cols)
-        n_aux_cols = len(self.aux_cols)
+        n_RE_cols = self.n_RE_cols
+        n_aux_cols = self.n_aux_cols
         loc_object = n_RE_cols + n_aux_cols
         if self.object_vectors is None:
             x_view, x_object = x[:, n_RE_cols:loc_object], x[:, loc_object:]
             y_view, y_object = y[:, n_RE_cols:loc_object], y[:, loc_object:]
+            if n_aux_cols > 1:
+                x_view = tf.expand_dims(x_view, axis=1)
+                y_view = tf.expand_dims(y_view, axis=1)
         else:
             x_view, y_view = x[:, n_RE_cols:loc_object], y[:, n_RE_cols:loc_object]
             if x_inducing:
                 x_object = x[:, loc_object:]
             else:
-                x_object = tf.gather(self.object_vectors, tf.cast(x[:, 0:n_RE_cols], dtype=tf.int64))
+                x_object = tf.gather(self.object_vectors, tf.cast(x[:, n_RE_cols - 1], dtype=tf.int64))
             if y_inducing:
                 y_object = y[:, loc_object:]
             else:
-                y_object = tf.gather(self.object_vectors, tf.cast(y[:, 0:n_RE_cols], dtype=tf.int64))
+                y_object = tf.gather(self.object_vectors, tf.cast(y[:, n_RE_cols - 1], dtype=tf.int64))
 
         # compute kernel matrix
         if diag_only:
-            view_matrix = self.kernel_view.apply(tf.expand_dims(x_view, axis=1), tf.expand_dims(y_view, axis=1))
+            view_matrix = self.kernel_view.apply(x_view, y_view)
         else:
-            view_matrix = self.kernel_view.matrix(tf.expand_dims(x_view, axis=1), tf.expand_dims(y_view, axis=1))
+            view_matrix = self.kernel_view.matrix(x_view, y_view)
 
         if diag_only:
             object_matrix = self.kernel_object.apply(x_object, y_object)
@@ -1418,7 +1422,7 @@ def forward_pass_SVGPVAE_tabular(data_batch, beta, vae, svgp, C_ma, lagrange_mul
     recon_data_Y = recon_data_Y_logits
 
     if GECO:
-        recon_loss = tf.reduce_mean((data_Y - recon_data_Y_logits) ** 2, axis=(1, 2, 3))
+        recon_loss = tf.reduce_mean((data_Y - recon_data_Y_logits) ** 2, axis=1)
         recon_loss = tf.reduce_sum(recon_loss - kappa**2)
         C_ma = alpha * C_ma + (1 - alpha) * recon_loss / b
 

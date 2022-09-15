@@ -69,7 +69,7 @@ def tensor_slice(data_dict, batch_size, placeholder):
 
 def run_experiment_SVGPVAE(train_data_dict, eval_data_dict, test_data_dict,
     L, q, batch_size, nr_epochs, n_neurons, dropout, activation, elbo_arg, M,
-    nr_inducing_points, RE_cols, aux_cols, init_PCA=True,
+    nr_inducing_units, nr_inducing_per_unit, RE_cols, aux_cols, init_PCA=True,
     ip_joint=True, GP_joint=True, ov_joint=True,
     disable_gpu=True, beta_arg=0.001, lr_arg=0.001, base_dir=os.getcwd(), expid='debug_TABULAR',
     jitter=0.000001, object_kernel_normalize=False, save=False, save_latents=False,
@@ -138,9 +138,9 @@ def run_experiment_SVGPVAE(train_data_dict, eval_data_dict, test_data_dict,
 
         # placeholders
         y_shape = (None,) + train_data_dict['data_Y'].shape[1:]
-        train_aux_X_placeholder = tf.placeholder(dtype=tf.float64, shape=(None, 2 + M))
+        train_aux_X_placeholder = tf.placeholder(dtype=tf.float64, shape=(None, len(aux_cols) + M))
         train_data_Y_placeholder = tf.placeholder(dtype=tf.float64, shape=y_shape)
-        test_aux_X_placeholder = tf.placeholder(dtype=tf.float64, shape=(None, 2 + M))
+        test_aux_X_placeholder = tf.placeholder(dtype=tf.float64, shape=(None, len(aux_cols) + M))
         test_data_Y_placeholder = tf.placeholder(dtype=tf.float64, shape=y_shape)
 
         if "SVGPVAE" in elbo_arg:  # SVGPVAE
@@ -148,7 +148,8 @@ def run_experiment_SVGPVAE(train_data_dict, eval_data_dict, test_data_dict,
                                                                  train_data_dict,
                                                                  ['z0', 'D1', 'D2'],
                                                                  ['D1', 'D2'],
-                                                                 n_samp_per_aux=nr_inducing_points,
+                                                                 nr_aux_units=nr_inducing_units,
+                                                                 n_samp_per_aux=nr_inducing_per_unit,
                                                                  PCA=init_PCA, M=M)
             titsias = 'Titsias' in elbo_arg
             ip_joint = not ip_joint
@@ -370,6 +371,7 @@ def run_experiment_SVGPVAE(train_data_dict, eval_data_dict, test_data_dict,
             start_time = time.time()
             cgen_test_set_MSE = []
             for epoch in range(nr_epochs):
+                print(epoch)
 
                 # 7.1) train for one epoch
                 sess.run(training_init_op)

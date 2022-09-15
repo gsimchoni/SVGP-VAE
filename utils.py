@@ -697,7 +697,7 @@ def generate_init_inducing_points_tabular(train_data, aux_cols, sampled_aux_cols
     For each angle/location/time we sample n object vectors from empirical distribution of PCA embeddings of training data.
 
     :param n: how many object vectors per each angle/location/time to sample
-    :param nr_aux_units: number of angles/locations between [min, max) (e.g. [0, 2*pi)), for 2D locations should be some n**2 where n is int
+    :param nr_aux_units: number of angles/locations between [min, max) (e.g. [0, 2*pi)), for 2D locations should be some L**2 where L is int
     :param PCA: whether or not to use PCA initialization
     :param M: dimension of GPLVM vectors (if none, compute them as aux_data.shape[1] - len(aux_cols))
     :param aux_cols: column names in aux_X that represent actual aux data (id, angle/location/time)
