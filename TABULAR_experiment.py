@@ -146,8 +146,8 @@ def run_experiment_SVGPVAE(train_data_dict, eval_data_dict, test_data_dict,
         if "SVGPVAE" in elbo_arg:  # SVGPVAE
             inducing_points_init = generate_init_inducing_points_tabular(
                                                                  train_data_dict,
-                                                                 ['z0', 'D1', 'D2'],
-                                                                 ['D1', 'D2'],
+                                                                 RE_cols,
+                                                                 aux_cols,
                                                                  nr_aux_units=nr_inducing_units,
                                                                  n_samp_per_aux=nr_inducing_per_unit,
                                                                  PCA=init_PCA, M=M)

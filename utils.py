@@ -690,7 +690,7 @@ def plot_mnist(arr, recon_arr, title, nr_images=8, seed=0):
     plt.draw()
 
 
-def generate_init_inducing_points_tabular(train_data, aux_cols, sampled_aux_cols, n_samp_per_aux=5, nr_aux_units=16, seed_init=0,
+def generate_init_inducing_points_tabular(train_data, RE_cols, aux_cols, n_samp_per_aux=5, nr_aux_units=16, seed_init=0,
     PCA=False, M=None, seed=0):
     """
     Generate initial inducing points for tabular data.
@@ -700,22 +700,22 @@ def generate_init_inducing_points_tabular(train_data, aux_cols, sampled_aux_cols
     :param nr_aux_units: number of angles/locations between [min, max) (e.g. [0, 2*pi)), for 2D locations should be some L**2 where L is int
     :param PCA: whether or not to use PCA initialization
     :param M: dimension of GPLVM vectors (if none, compute them as aux_data.shape[1] - len(aux_cols))
-    :param aux_cols: column names in aux_X that represent actual aux data (id, angle/location/time)
-    :param sampled_aux_cols: aux column(s) from which space to sample (e.g. angle or lon/lat or time)
+    :param RE_cols: identity columns
+    :param aux_cols: aux column(s) from which space to sample (e.g. angle or lon/lat or time)
     """
 
     random.seed(seed)
 
     data = train_data['aux_X']
-    aux_data = data.drop(aux_cols, axis=1).values
+    aux_data = data.drop(RE_cols + aux_cols, axis=1).values
     if M is None:
-        M = data.shape[1] - len(aux_cols)
+        M = data.shape[1] - len(RE_cols + aux_cols)
     aux_units_list = []
-    n_aux_cols = len(sampled_aux_cols)
+    n_aux_cols = len(aux_cols)
     if n_aux_cols == 1:
-        aux_units = np.linspace(data[sampled_aux_cols[0]].min(), data[sampled_aux_cols[0]].max(), nr_aux_units + 1)[:-1]
+        aux_units = np.linspace(data[aux_cols[0]].min(), data[aux_cols[0]].max(), nr_aux_units + 1)[:-1]
     elif n_aux_cols == 2:
-        for aux_col in sampled_aux_cols:
+        for aux_col in aux_cols:
             aux_units = np.linspace(data[aux_col].min(), data[aux_col].max(), int(np.sqrt(nr_aux_units)) + 1)[:-1]
             aux_units_list.append(aux_units)
         aux_units = np.stack(aux_units_list, axis=1)
