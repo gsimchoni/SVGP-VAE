@@ -75,9 +75,9 @@ def run_experiment_SVGPVAE(train_data_dict, eval_data_dict, test_data_dict,
     jitter=0.000001, object_kernel_normalize=False, save=False, save_latents=False,
     save_model_weights=False, show_pics=False, kappa_squared=0.020, clip_qs=True,
     GECO=True, bias_analysis=False, opt_regime=['joint-1000'], test_set_metrics=False,
-    mnist_data_path='MNIST data/', ram=1.0, dataset='3', mnist=False):
+    ram=1.0):
     """
-    Function with tensorflow graph and session for SVGPVAE experiments on rotated MNIST data.
+    Function with tensorflow graph and session for SVGPVAE experiments on tabular data.
     For description of SVGPVAE see chapter 7 in SVGPVAE.tex
 
     :param args:
