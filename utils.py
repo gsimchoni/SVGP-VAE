@@ -690,6 +690,27 @@ def plot_mnist(arr, recon_arr, title, nr_images=8, seed=0):
     plt.draw()
 
 
+def plot_tabular(arr, recon_arr, title, nr_images=5, seed=0):
+    """
+
+    :param arr:
+    :param recon_arr:
+    :param title:
+    :param nr_images:
+    :param seed:
+    :return:
+    """
+    random.seed(seed)
+    assert nr_images < 10
+
+    fig, axs = plt.subplots(nrows=1, ncols=nr_images)
+    plt.suptitle(title)
+    for i in range(nr_images):
+        axs[i].scatter(arr.values[:, i], recon_arr[:, i])
+    # plt.tight_layout()
+    plt.draw()
+
+
 def generate_init_inducing_points_tabular(train_data, RE_cols, aux_cols, n_samp_per_aux=5, nr_aux_units=16, seed_init=0,
     PCA=False, M=None, seed=0):
     """
@@ -961,10 +982,11 @@ def print_trainable_vars(vars):
 
 
 def parse_opt_regime(arr):
+    arr1 = []
     for i in range(len(arr)):
         regime, nr_epochs = arr[i].split("-")
-        arr[i] = (regime, int(nr_epochs))
-    training_regime = [[regime[0]] * regime[1] for regime in arr]
+        arr1.append((regime, int(nr_epochs)))
+    training_regime = [[regime[0]] * regime[1] for regime in arr1]
     flatten = lambda l: [item for sublist in l for item in sublist]
     training_regime = flatten(training_regime)
     nr_epochs = len(training_regime)
