@@ -1,6 +1,7 @@
 import numpy as np
-import tensorflow._api.v2.compat.v1 as tf
-tf.disable_v2_behavior()
+import tensorflow as tf
+# import tensorflow._api.v2.compat.v1 as tf
+# tf.disable_v2_behavior()
 
 import tensorflow_probability as tfp
 
@@ -98,10 +99,10 @@ class SVGP:
             cov_mat = tf.linalg.diag(noise) + tf.matmul(K_nm, tf.matmul(K_mm_inv, K_mn))
             cov_mat_inv = tf.linalg.inv(_add_diagonal_jitter(cov_mat, self.jitter))
             cov_mat_chol = tf.linalg.cholesky(_add_diagonal_jitter(cov_mat, self.jitter))
-            cov_mat_log_det = 2*tf.reduce_sum(tf.log(tf.linalg.diag_part(cov_mat_chol)), axis=1)  # (batch)
+            cov_mat_log_det = 2*tf.reduce_sum(tf.math.log(tf.linalg.diag_part(cov_mat_chol)), axis=1)  # (batch)
             trace_term = precision * tf.linalg.diag_part(K_nn - tf.matmul(K_nm, tf.matmul(K_mm_inv, K_mn))) # (batch, tmax)
 
-            L_2_term = -0.5 * (T * tf.log(2*np.pi) + cov_mat_log_det +
+            L_2_term = -0.5 * (T * tf.math.log(2*np.pi) + cov_mat_log_det +
                                tf.reduce_sum(y * tf.linalg.matvec(cov_mat_inv, y), axis=1) +
                                tf.reduce_sum(trace_term, axis=1))
 
@@ -123,23 +124,23 @@ class SVGP:
             lambda_mat = tf.matmul(K_mm_inv, tf.matmul(lambda_mat, K_mm_inv))
 
             # Trace terms, (batch, tmax)
-            # trace_terms = precision * tf.trace(tf.matmul(A_hat, lambda_mat))
+            # trace_terms = precision * tf.linalg.trace(tf.matmul(A_hat, lambda_mat))
             A_hat_ = tf.repeat(tf.expand_dims(A_hat, axis=1), repeats=[T], axis=1)
-            trace_terms = precision * tf.trace(tf.matmul(A_hat_, lambda_mat))
+            trace_terms = precision * tf.linalg.trace(tf.matmul(A_hat_, lambda_mat))
 
             # L_3 sum part, (batch)
             L_3_sum_term = -0.5*(tf.reduce_sum(K_tilde_terms, axis=1) + tf.reduce_sum(trace_terms, axis=1) +
-                                 tf.reduce_sum(tf.log(noise), axis=1) + T*tf.log(2*np.pi) +
+                                 tf.reduce_sum(tf.math.log(noise), axis=1) + T*tf.math.log(2*np.pi) +
                                  tf.reduce_sum(precision * (y - mean_vector)**2, axis=1))
 
             # KL term
             K_mm_chol = tf.linalg.cholesky(_add_diagonal_jitter(K_mm, self.jitter))
             S_chol = tf.linalg.cholesky(_add_diagonal_jitter(A_hat, self.jitter))
-            K_mm_log_det = 2*tf.reduce_sum(tf.log(tf.linalg.diag_part(K_mm_chol)))
-            S_log_det = 2*tf.reduce_sum(tf.log(tf.linalg.diag_part(S_chol)))
+            K_mm_log_det = 2*tf.reduce_sum(tf.math.log(tf.linalg.diag_part(K_mm_chol)))
+            S_log_det = 2*tf.reduce_sum(tf.math.log(tf.linalg.diag_part(S_chol)))
 
             KL_term = 0.5*(K_mm_log_det - S_log_det - m +
-                           tf.trace(tf.matmul(K_mm_inv, A_hat)) +
+                           tf.linalg.trace(tf.matmul(K_mm_inv, A_hat)) +
                            tf.reduce_sum(A_hat *
                                          tf.linalg.matvec(K_mm_inv, A_hat)))
 
@@ -240,6 +241,8 @@ class mainSVGP:
         m = self.inducing_index_points.get_shape()[0]
         b = tf.cast(b, dtype=self.dtype)
         m = tf.cast(m, dtype=self.dtype)
+        noise = tf.cast(noise, dtype=self.dtype)
+        y = tf.cast(y, dtype=self.dtype)
 
         # kernel matrices
         K_mm = self.kernel_matrix(self.inducing_index_points, self.inducing_index_points)  # (m,m)
@@ -257,9 +260,9 @@ class mainSVGP:
                         K_nn - tf.linalg.diag_part(tf.matmul(K_nm, tf.matmul(K_mm_inv, K_mn))))  # (b)
             cov_mat_inv = tf.linalg.inv(_add_diagonal_jitter(cov_mat, self.jitter))
             cov_mat_chol = tf.linalg.cholesky(_add_diagonal_jitter(cov_mat, self.jitter))
-            cov_mat_log_det = 2 * tf.reduce_sum(tf.log(tf.linalg.diag_part(cov_mat_chol)))
+            cov_mat_log_det = 2 * tf.reduce_sum(tf.math.log(tf.linalg.diag_part(cov_mat_chol)))
 
-            L_2_term = -0.5 * (b * tf.cast(tf.log(2 * np.pi), dtype=self.dtype) + cov_mat_log_det +
+            L_2_term = -0.5 * (b * tf.cast(tf.math.log(2 * np.pi), dtype=self.dtype) + cov_mat_log_det +
                                tf.reduce_sum(y * tf.linalg.matvec(cov_mat_inv, y)) +
                                tf.reduce_sum(trace_term))
 
@@ -277,11 +280,11 @@ class mainSVGP:
             K_mm_chol = tf.linalg.cholesky(_add_diagonal_jitter(K_mm, self.jitter))
             S_chol = tf.linalg.cholesky(
                 _add_diagonal_jitter(A_hat, self.jitter))
-            K_mm_log_det = 2 * tf.reduce_sum(tf.log(tf.linalg.diag_part(K_mm_chol)))
-            S_log_det = 2 * tf.reduce_sum(tf.log(tf.linalg.diag_part(S_chol)))
+            K_mm_log_det = 2 * tf.reduce_sum(tf.math.log(tf.linalg.diag_part(K_mm_chol)))
+            S_log_det = 2 * tf.reduce_sum(tf.math.log(tf.linalg.diag_part(S_chol)))
 
             KL_term = 0.5 * (K_mm_log_det - S_log_det - m +
-                             tf.trace(tf.matmul(K_mm_inv, A_hat)) +
+                             tf.linalg.trace(tf.matmul(K_mm_inv, A_hat)) +
                              tf.reduce_sum(mu_hat *
                                            tf.linalg.matvec(K_mm_inv, mu_hat)))
 
@@ -298,11 +301,11 @@ class mainSVGP:
             lambda_mat = tf.matmul(K_mm_inv, tf.matmul(lambda_mat, K_mm_inv))
 
             # Trace terms, (b,)
-            trace_terms = precision * tf.trace(tf.matmul(S, lambda_mat))
+            trace_terms = precision * tf.linalg.trace(tf.matmul(S, lambda_mat))
 
             # L_3 sum part, (1,)
             L_3_sum_term = -0.5 * (tf.reduce_sum(K_tilde_terms) + tf.reduce_sum(trace_terms) +
-                                   tf.reduce_sum(tf.log(noise)) + b * tf.cast(tf.log(2 * np.pi), dtype=self.dtype) +
+                                   tf.reduce_sum(tf.math.log(noise)) + b * tf.cast(tf.math.log(2 * np.pi), dtype=self.dtype) +
                                    tf.reduce_sum(precision * (y - mean_vector) ** 2))
 
             return L_3_sum_term, KL_term
@@ -319,6 +322,9 @@ class mainSVGP:
         :return: posterior mean at index points,
                  (diagonal of) posterior covariance matrix at index points
         """
+
+        noise = tf.cast(noise, dtype=self.dtype)
+        y = tf.cast(y, self.dtype)
 
         b = tf.cast(tf.shape(index_points_train)[0], dtype=self.dtype)
 
@@ -447,6 +453,8 @@ class MainTabularSVGP:
         m = self.inducing_index_points.get_shape()[0]
         b = tf.cast(b, dtype=self.dtype)
         m = tf.cast(m, dtype=self.dtype)
+        noise = tf.cast(noise, dtype=self.dtype)
+        y = tf.cast(y, dtype=self.dtype)
 
         # kernel matrices
         K_mm = self.kernel_matrix(self.inducing_index_points, self.inducing_index_points)  # (m,m)
@@ -464,9 +472,9 @@ class MainTabularSVGP:
                         K_nn - tf.linalg.diag_part(tf.matmul(K_nm, tf.matmul(K_mm_inv, K_mn))))  # (b)
             cov_mat_inv = tf.linalg.inv(_add_diagonal_jitter(cov_mat, self.jitter))
             cov_mat_chol = tf.linalg.cholesky(_add_diagonal_jitter(cov_mat, self.jitter))
-            cov_mat_log_det = 2 * tf.reduce_sum(tf.log(tf.linalg.diag_part(cov_mat_chol)))
+            cov_mat_log_det = 2 * tf.reduce_sum(tf.math.log(tf.linalg.diag_part(cov_mat_chol)))
 
-            L_2_term = -0.5 * (b * tf.cast(tf.log(2 * np.pi), dtype=self.dtype) + cov_mat_log_det +
+            L_2_term = -0.5 * (b * tf.cast(tf.math.log(2 * np.pi), dtype=self.dtype) + cov_mat_log_det +
                                tf.reduce_sum(y * tf.linalg.matvec(cov_mat_inv, y)) +
                                tf.reduce_sum(trace_term))
 
@@ -484,11 +492,11 @@ class MainTabularSVGP:
             K_mm_chol = tf.linalg.cholesky(_add_diagonal_jitter(K_mm, self.jitter))
             S_chol = tf.linalg.cholesky(
                 _add_diagonal_jitter(A_hat, self.jitter))
-            K_mm_log_det = 2 * tf.reduce_sum(tf.log(tf.linalg.diag_part(K_mm_chol)))
-            S_log_det = 2 * tf.reduce_sum(tf.log(tf.linalg.diag_part(S_chol)))
+            K_mm_log_det = 2 * tf.reduce_sum(tf.math.log(tf.linalg.diag_part(K_mm_chol)))
+            S_log_det = 2 * tf.reduce_sum(tf.math.log(tf.linalg.diag_part(S_chol)))
 
             KL_term = 0.5 * (K_mm_log_det - S_log_det - m +
-                             tf.trace(tf.matmul(K_mm_inv, A_hat)) +
+                             tf.linalg.trace(tf.matmul(K_mm_inv, A_hat)) +
                              tf.reduce_sum(mu_hat *
                                            tf.linalg.matvec(K_mm_inv, mu_hat)))
 
@@ -505,11 +513,11 @@ class MainTabularSVGP:
             lambda_mat = tf.matmul(K_mm_inv, tf.matmul(lambda_mat, K_mm_inv))
 
             # Trace terms, (b,)
-            trace_terms = precision * tf.trace(tf.matmul(S, lambda_mat))
+            trace_terms = precision * tf.linalg.trace(tf.matmul(S, lambda_mat))
 
             # L_3 sum part, (1,)
             L_3_sum_term = -0.5 * (tf.reduce_sum(K_tilde_terms) + tf.reduce_sum(trace_terms) +
-                                   tf.reduce_sum(tf.log(noise)) + b * tf.cast(tf.log(2 * np.pi), dtype=self.dtype) +
+                                   tf.reduce_sum(tf.math.log(noise)) + b * tf.cast(tf.math.log(2 * np.pi), dtype=self.dtype) +
                                    tf.reduce_sum(precision * (y - mean_vector) ** 2))
 
             return L_3_sum_term, KL_term
@@ -526,7 +534,8 @@ class MainTabularSVGP:
         :return: posterior mean at index points,
                  (diagonal of) posterior covariance matrix at index points
         """
-
+        noise = tf.cast(noise, dtype=self.dtype)
+        y = tf.cast(y, dtype=self.dtype)
         b = tf.cast(tf.shape(index_points_train)[0], dtype=self.dtype)
 
         K_mm = self.kernel_matrix(self.inducing_index_points, self.inducing_index_points)  # (m,m)
@@ -565,6 +574,8 @@ class MainTabularSVGP:
         :param noise: noise vector of latent GP
         :return:
         """
+        noise = tf.cast(noise, dtype=self.dtype)
+        y = tf.cast(y, dtype=self.dtype)
 
         b = tf.cast(tf.shape(index_points)[0], dtype=self.dtype)
 
@@ -1077,6 +1088,8 @@ def forward_pass_standard_VAE(data_batch, vae, sigma_gaussian_decoder=0.01,
         qnet_mu, qnet_var = vae.encode(data_Y_cvae, aux_X[:, 1])
     else:
         qnet_mu, qnet_var = vae.encode(data_Y)
+    qnet_mu = tf.cast(qnet_mu, tf.float64)
+    qnet_var = tf.cast(qnet_var, tf.float64)
 
     # clipping of VAE posterior variance
     if clipping_qs:
@@ -1092,7 +1105,7 @@ def forward_pass_standard_VAE(data_batch, vae, sigma_gaussian_decoder=0.01,
     if CVAE:
         recon_data_Y_logits = vae.decode(latent_samples, aux_X[:, 1])
     else:
-        recon_data_Y_logits = vae.decode(latent_samples)
+        recon_data_Y_logits = tf.cast(vae.decode(latent_samples), tf.float64)
 
     # Gaussian observational likelihood
     recon_data_Y = recon_data_Y_logits
@@ -1150,6 +1163,8 @@ def forward_pass_standard_VAE_rotated_mnist(data_batch, vae, sigma_gaussian_deco
         qnet_var = tf.clip_by_value(qnet_var, 1e-3, 10)
 
     # SAMPLE
+    qnet_mu = tf.cast(qnet_mu, dtype = tf.float64)
+    qnet_var = tf.cast(qnet_var, dtype = tf.float64)
     epsilon = tf.random.normal(shape=tf.shape(qnet_mu), dtype=vae.dtype)
     latent_samples = qnet_mu + epsilon * tf.sqrt(qnet_var)
 
@@ -1418,8 +1433,8 @@ def forward_pass_SVGPVAE_tabular(data_batch, beta, vae, svgp, C_ma, lagrange_mul
     latent_samples = p_m + epsilon * tf.sqrt(p_v)
 
     # DECODER NETWORK
-    recon_data_Y_logits = vae.decode(latent_samples)
-    recon_data_Y = recon_data_Y_logits
+    recon_data_Y_logits = tf.cast(vae.decode(latent_samples), tf.float64)
+    recon_data_Y = tf.cast(recon_data_Y_logits, tf.float64)
 
     if GECO:
         recon_loss = tf.reduce_mean((data_Y - recon_data_Y_logits) ** 2, axis=1)
@@ -1575,7 +1590,7 @@ def batching_predict_SVGPVAE(test_data_batch, vae, svgp,
     # predict (decode) latent images.
     # ===============================================
     # Since this is generation (testing pipeline), could add \sigma_y to images
-    recon_data_Y_test_logits = vae.decode(latent_samples)
+    recon_data_Y_test_logits = tf.cast(vae.decode(latent_samples), tf.float64)
 
     # Gaussian observational likelihood, no variance
     recon_data_Y_test = recon_data_Y_test_logits

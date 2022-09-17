@@ -9,8 +9,9 @@ import numpy as np
 import matplotlib as mpl
 mpl.use('Agg')
 import matplotlib.pyplot as plt
-import tensorflow._api.v2.compat.v1 as tf
-tf.disable_v2_behavior()
+import tensorflow as tf
+# import tensorflow._api.v2.compat.v1 as tf
+# tf.disable_v2_behavior()
 # Problem with local TF setup, works fine in Google Colab
 os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 import tensorflow_probability as tfp
@@ -198,7 +199,7 @@ def run_experiment_rotated_mnist_SVGPVAE(args, args_dict):
 
         # ====================== 3) optimizer ops ======================
         global_step = tf.Variable(0, name='global_step', trainable=False)
-        train_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)
+        train_vars = tf.compat.v1.get_collection(tf.compat.v1.GraphKeys.TRAINABLE_VARIABLES)
         lr = tf.compat.v1.placeholder(dtype=tf.float64, shape=())
         optimizer = tf.compat.v1.train.AdamOptimizer(learning_rate=lr)
 
@@ -292,14 +293,14 @@ def run_experiment_rotated_mnist_SVGPVAE(args, args_dict):
         # ====================== 5) print and init trainable params ======================
         print_trainable_vars(train_vars)
 
-        init_op = tf.global_variables_initializer()
+        init_op = tf.compat.v1.global_variables_initializer()
 
         # ====================== 6) saver and GPU ======================
 
         if args.save_model_weights:
             saver = tf.compat.v1.train.Saver(max_to_keep=3)
 
-        gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=args.ram)
+        gpu_options = tf.compat.v1.GPUOptions(per_process_gpu_memory_fraction=args.ram)
 
         # ====================== 7) tf.session ======================
 
@@ -308,7 +309,7 @@ def run_experiment_rotated_mnist_SVGPVAE(args, args_dict):
         else:
             nr_epochs = args.nr_epochs
 
-        with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
+        with tf.compat.v1.Session(config=tf.compat.v1.ConfigProto(gpu_options=gpu_options)) as sess:
 
             sess.run(init_op)
 

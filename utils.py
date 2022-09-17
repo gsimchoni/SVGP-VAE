@@ -2,8 +2,9 @@
 Utils functions for the moving ball and the rotated MNIST experiments.
 """
 
-import tensorflow._api.v2.compat.v1 as tf
-tf.disable_v2_behavior()
+import tensorflow as tf
+# import tensorflow._api.v2.compat.v1 as tf
+# tf.disable_v2_behavior()
 
 import tensorflow_probability as tfp
 from tensorflow.python.ops import math_ops as tfmath_ops
@@ -496,9 +497,11 @@ def gauss_cross_entropy(mu1, var1, mu2, var2):
     returns:
         cross_entropy: (batch, tmax, 2) tf variable
     """
+    mu2 = tf.cast(mu2, dtype=tf.float64)
+    var2 = tf.cast(var2, dtype=tf.float64)
 
     term0 = 1.8378770664093453  # log(2*pi)
-    term1 = tf.log(var2)
+    term1 = tf.math.log(var2)
     term2 = (var1 + mu1 ** 2 - 2 * mu1 * mu2 + mu2 ** 2) / var2
 
     cross_entropy = -0.5 * (term0 + term1 + term2)
@@ -959,7 +962,8 @@ def import_rotated_mnist(MNIST_path, ending, batch_size, digits="3", N_t=None, g
     test_data = tf.data.Dataset.zip((test_data_images, test_data_aux_data)).batch(test_batch_size_placeholder)
 
     # init iterator
-    iterator = tf.data.Iterator.from_structure(train_data.output_types, train_data.output_shapes)
+    iterator = tf.compat.v1.data.Iterator.from_structure(tf.compat.v1.data.get_output_types(train_data),
+        tf.compat.v1.data.get_output_shapes(train_data))
     training_init_op = iterator.make_initializer(train_data)
     eval_init_op = iterator.make_initializer(eval_data)
     test_init_op = iterator.make_initializer(test_data)
@@ -976,7 +980,7 @@ def print_trainable_vars(vars):
         shape = v.get_shape()
         var_params = 1
         for dim in shape:
-            var_params *= dim.value
+            var_params *= dim
         total_parameters += var_params
     print("Number of train params: {}".format(total_parameters))
 

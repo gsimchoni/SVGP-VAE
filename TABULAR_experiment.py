@@ -10,8 +10,9 @@ from sklearn.decomposition import PCA
 import matplotlib as mpl
 mpl.use('Agg')
 import matplotlib.pyplot as plt
-import tensorflow._api.v2.compat.v1 as tf
-tf.disable_v2_behavior()
+import tensorflow as tf
+# import tensorflow._api.v2.compat.v1 as tf
+# tf.disable_v2_behavior()
 import tensorflow_probability as tfp
 
 if __package__ is None or __package__ == '':
@@ -115,7 +116,7 @@ def run_experiment_SVGPVAE(train_data_dict, eval_data_dict, test_data_dict,
         test_data, test_batch_size_placeholder = tensor_slice(test_data_dict, batch_size, placeholder=True)
 
         # init iterator
-        iterator = tf.data.Iterator.from_structure(
+        iterator = tf.compat.v1.data.Iterator.from_structure(
             tf.compat.v1.data.get_output_types(train_data),
             tf.compat.v1.data.get_output_shapes(train_data)
         )
@@ -133,14 +134,14 @@ def run_experiment_SVGPVAE(train_data_dict, eval_data_dict, test_data_dict,
             VAE = mnistCVAE(L=L)
         else:
             VAE = tabularVAE(input_batch[0].shape[1], L, n_neurons, dropout, activation)
-        beta = tf.placeholder(dtype=tf.float64, shape=())
+        beta = tf.compat.v1.placeholder(dtype=tf.float64, shape=())
 
         # placeholders
         y_shape = (None,) + train_data_dict['data_Y'].shape[1:]
-        train_aux_X_placeholder = tf.placeholder(dtype=tf.float64, shape=(None, len(RE_cols) + len(aux_cols) + M))
-        train_data_Y_placeholder = tf.placeholder(dtype=tf.float64, shape=y_shape)
-        test_aux_X_placeholder = tf.placeholder(dtype=tf.float64, shape=(None, len(RE_cols) + len(aux_cols) + M))
-        test_data_Y_placeholder = tf.placeholder(dtype=tf.float64, shape=y_shape)
+        train_aux_X_placeholder = tf.compat.v1.placeholder(dtype=tf.float64, shape=(None, len(RE_cols) + len(aux_cols) + M))
+        train_data_Y_placeholder = tf.compat.v1.placeholder(dtype=tf.float64, shape=y_shape)
+        test_aux_X_placeholder = tf.compat.v1.placeholder(dtype=tf.float64, shape=(None, len(RE_cols) + len(aux_cols) + M))
+        test_data_Y_placeholder = tf.compat.v1.placeholder(dtype=tf.float64, shape=y_shape)
 
         if "SVGPVAE" in elbo_arg:  # SVGPVAE
             inducing_points_init = generate_init_inducing_points_tabular(
@@ -171,9 +172,9 @@ def run_experiment_SVGPVAE(train_data_dict, eval_data_dict, test_data_dict,
                               RE_cols=RE_cols, aux_cols=aux_cols)
 
             # forward pass SVGPVAE
-            C_ma_placeholder = tf.placeholder(dtype=tf.float64, shape=())
-            lagrange_mult_placeholder = tf.placeholder(dtype=tf.float64, shape=())
-            alpha_placeholder = tf.placeholder(dtype=tf.float64, shape=())
+            C_ma_placeholder = tf.compat.v1.placeholder(dtype=tf.float64, shape=())
+            lagrange_mult_placeholder = tf.compat.v1.placeholder(dtype=tf.float64, shape=())
+            alpha_placeholder = tf.compat.v1.placeholder(dtype=tf.float64, shape=())
 
             elbo, recon_loss, KL_term, inside_elbo, ce_term, p_m, p_v, qnet_mu, qnet_var, recon_data_Y, \
             inside_elbo_recon, inside_elbo_kl, latent_samples, \
@@ -206,8 +207,8 @@ def run_experiment_SVGPVAE(train_data_dict, eval_data_dict, test_data_dict,
             raise ValueError
         
         if "SVGPVAE" in elbo_arg:
-            train_encodings_means_placeholder = tf.placeholder(dtype=tf.float64, shape=(None, L))
-            train_encodings_vars_placeholder = tf.placeholder(dtype=tf.float64, shape=(None, L))
+            train_encodings_means_placeholder = tf.compat.v1.placeholder(dtype=tf.float64, shape=(None, L))
+            train_encodings_vars_placeholder = tf.compat.v1.placeholder(dtype=tf.float64, shape=(None, L))
 
             qnet_mu_train, qnet_var_train, _ = batching_encode_SVGPVAE(input_batch, vae=VAE,
                                                                     clipping_qs=clip_qs)
@@ -248,9 +249,9 @@ def run_experiment_SVGPVAE(train_data_dict, eval_data_dict, test_data_dict,
 
         # ====================== 3) optimizer ops ======================
         global_step = tf.Variable(0, name='global_step', trainable=False)
-        train_vars = tf.get_collection(tf.GraphKeys.TRAINABLE_VARIABLES)
-        lr = tf.placeholder(dtype=tf.float64, shape=())
-        optimizer = tf.train.AdamOptimizer(learning_rate=lr)
+        train_vars = tf.compat.v1.get_collection(tf.compat.v1.GraphKeys.TRAINABLE_VARIABLES)
+        lr = tf.compat.v1.placeholder(dtype=tf.float64, shape=())
+        optimizer = tf.compat.v1.train.AdamOptimizer(learning_rate=lr)
 
         if GECO:  # minimizing GECO objective
             gradients = tf.gradients(elbo, train_vars)
@@ -342,14 +343,14 @@ def run_experiment_SVGPVAE(train_data_dict, eval_data_dict, test_data_dict,
         # ====================== 5) print and init trainable params ======================
         print_trainable_vars(train_vars)
 
-        init_op = tf.global_variables_initializer()
+        init_op = tf.compat.v1.global_variables_initializer()
 
         # ====================== 6) saver and GPU ======================
 
         if save_model_weights:
             saver = tf.train.Saver(max_to_keep=3)
 
-        gpu_options = tf.GPUOptions(per_process_gpu_memory_fraction=ram)
+        gpu_options = tf.compat.v1.GPUOptions(per_process_gpu_memory_fraction=ram)
 
         # ====================== 7) tf.session ======================
 
@@ -358,7 +359,7 @@ def run_experiment_SVGPVAE(train_data_dict, eval_data_dict, test_data_dict,
         else:
             nr_epochs = nr_epochs
 
-        with tf.Session(config=tf.ConfigProto(gpu_options=gpu_options)) as sess:
+        with tf.compat.v1.Session(config=tf.compat.v1.ConfigProto(gpu_options=gpu_options)) as sess:
 
             sess.run(init_op)
 
