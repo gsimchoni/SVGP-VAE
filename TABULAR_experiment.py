@@ -409,9 +409,9 @@ def run_experiment_SVGPVAE(train_data_dict, eval_data_dict, test_data_dict,
                         elbos.append(elbo_)
                         losses.append(recon_loss_)
                         first_step = False  # switch for initizalition of GECO algorithm
-                        batch += 1
                         if verbose:
                             print(f'  batch: {batch}, elbo: {elbo_}, recon_loss: {recon_loss_}')
+                        batch += 1
                     except tf.errors.OutOfRangeError:
                         if bias_analysis:
                             mean_vector_full_data_ = sess.run(mean_vector_full_data,
