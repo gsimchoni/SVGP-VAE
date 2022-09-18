@@ -320,7 +320,12 @@ def run_experiment_rotated_mnist_SVGPVAE(args, args_dict):
 
             start_time = time.time()
             cgen_test_set_MSE = []
+            
             print(f'GECO: {args.GECO}')
+            best_eval_loss = np.inf
+            best_loss_counter = 0
+            stop_training = False
+
             for epoch in range(nr_epochs):
 
                 # 7.1) train for one epoch
@@ -383,7 +388,7 @@ def run_experiment_rotated_mnist_SVGPVAE(args, args_dict):
                         break
 
                 # 7.2) calculate loss on eval set
-                if args.save and (epoch + 1) % 10 == 0 and "SVGPVAE" in args.elbo:
+                if "SVGPVAE" in args.elbo:
                     losses = []
                     sess.run(eval_init_op, {eval_batch_size_placeholder: args.batch_size})
                     while True:
@@ -394,9 +399,19 @@ def run_experiment_rotated_mnist_SVGPVAE(args, args_dict):
                                                                      lagrange_mult_placeholder: lagrange_mult_})
                             losses.append(recon_loss_)
                         except tf.errors.OutOfRangeError:
-                            MSE = np.sum(losses) / N_eval
-                            print('MSE loss on eval set for epoch {} : {}'.format(epoch, MSE))
+                            MSE_eval = np.sum(losses) / N_eval
+                            print('MSE loss on eval set for epoch {} : {}'.format(epoch, MSE_eval))
+                            # early stopping
+                            if MSE_eval < best_eval_loss:
+                                best_eval_loss = MSE_eval
+                                best_loss_counter = 0
+                            else:
+                                best_loss_counter += 1
+                                if best_loss_counter == args.patience:
+                                    stop_training = True
                             break
+                if stop_training:
+                    break
 
                 # 7.3) save metrics to Pandas df for model diagnostics
                 if args.save and (epoch + 1) % 10 == 0:
@@ -429,101 +444,100 @@ def run_experiment_rotated_mnist_SVGPVAE(args, args_dict):
                         new_res = sess.run(res_vars, {beta: args.beta})
                         res_saver(new_res, 1)
 
-                # 7.4) calculate loss on test set and visualize reconstructed images
-                if (epoch + 1) % 10 == 0:
+            # 7.4) calculate loss on test set and visualize reconstructed images
 
-                    losses, recon_images_arr = [], []
-                    sess.run(test_init_op, {test_batch_size_placeholder: args.batch_size})
-                    # test set: reconstruction
-                    while True:
-                        try:
-                            if "SVGPVAE" in args.elbo:
-                                recon_loss_, recon_images_ = sess.run([recon_loss, recon_images],
-                                                                      {beta: args.beta,
-                                                                       alpha_placeholder: args.alpha,
-                                                                       C_ma_placeholder: C_ma_,
-                                                                       lagrange_mult_placeholder: lagrange_mult_})
-                            else:
-                                recon_loss_, recon_images_ = sess.run([recon_loss, recon_images],
-                                                                      {beta: args.beta})
-                            losses.append(recon_loss_)
-                            recon_images_arr.append(recon_images_)
-                        except tf.errors.OutOfRangeError:
-                            MSE = np.sum(losses) / N_test
-                            print('MSE loss on test set for epoch {} : {}'.format(epoch, MSE))
-                            recon_images_arr = np.concatenate(tuple(recon_images_arr))
-                            plot_mnist(test_data_dict['images'],
-                                       recon_images_arr,
-                                       title="Epoch: {}. Recon MSE test set:{}".format(epoch + 1, round(MSE, 4)))
-                            if args.show_pics:
-                                plt.show()
-                                plt.pause(0.01)
-                            if args.save:
-                                plt.savefig(pic_folder + str(g_s_) + ".png")
-                            break
-                    # test set: conditional generation SVGPVAE
+            losses, recon_images_arr = [], []
+            sess.run(test_init_op, {test_batch_size_placeholder: args.batch_size})
+            # test set: reconstruction
+            while True:
+                try:
                     if "SVGPVAE" in args.elbo:
+                        recon_loss_, recon_images_ = sess.run([recon_loss, recon_images],
+                                                                {beta: args.beta,
+                                                                alpha_placeholder: args.alpha,
+                                                                C_ma_placeholder: C_ma_,
+                                                                lagrange_mult_placeholder: lagrange_mult_})
+                    else:
+                        recon_loss_, recon_images_ = sess.run([recon_loss, recon_images],
+                                                                {beta: args.beta})
+                    losses.append(recon_loss_)
+                    recon_images_arr.append(recon_images_)
+                except tf.errors.OutOfRangeError:
+                    MSE = np.sum(losses) / N_test
+                    print('MSE loss on test set for epoch {} : {}'.format(epoch, MSE))
+                    recon_images_arr = np.concatenate(tuple(recon_images_arr))
+                    plot_mnist(test_data_dict['images'],
+                                recon_images_arr,
+                                title="Epoch: {}. Recon MSE test set:{}".format(epoch + 1, round(MSE, 4)))
+                    if args.show_pics:
+                        plt.show()
+                        plt.pause(0.01)
+                    if args.save:
+                        plt.savefig(pic_folder + str(g_s_) + ".png")
+                    break
+            # test set: conditional generation SVGPVAE
+            if "SVGPVAE" in args.elbo:
 
-                        # encode training data (in batches)
-                        sess.run(training_init_op)
-                        means, vars = [], []
-                        while True:
-                            try:
-                                qnet_mu_train_, qnet_var_train_ = sess.run([qnet_mu_train, qnet_var_train])
-                                means.append(qnet_mu_train_)
-                                vars.append(qnet_var_train_)
-                            except tf.errors.OutOfRangeError:
-                                break
-                        means = np.concatenate(means, axis=0)
-                        vars = np.concatenate(vars, axis=0)
+                # encode training data (in batches)
+                sess.run(training_init_op)
+                means, vars = [], []
+                while True:
+                    try:
+                        qnet_mu_train_, qnet_var_train_ = sess.run([qnet_mu_train, qnet_var_train])
+                        means.append(qnet_mu_train_)
+                        vars.append(qnet_var_train_)
+                    except tf.errors.OutOfRangeError:
+                        break
+                means = np.concatenate(means, axis=0)
+                vars = np.concatenate(vars, axis=0)
 
-                        # predict test data (in batches)
-                        sess.run(test_init_op, {test_batch_size_placeholder: args.batch_size})
-                        recon_loss_cgen, recon_images_cgen = [], []
-                        while True:
-                            try:
-                                loss_, pics_ = sess.run([recon_loss_test, recon_images_test],
-                                                        {train_aux_data_placeholder: train_data_dict['aux_data'],
-                                                         train_encodings_means_placeholder: means,
-                                                         train_encodings_vars_placeholder: vars})
-                                recon_loss_cgen.append(loss_)
-                                recon_images_cgen.append(pics_)
-                            except tf.errors.OutOfRangeError:
-                                break
-                        recon_loss_cgen = np.sum(recon_loss_cgen) / N_test
-                        recon_images_cgen = np.concatenate(recon_images_cgen, axis=0)
+                # predict test data (in batches)
+                sess.run(test_init_op, {test_batch_size_placeholder: args.batch_size})
+                recon_loss_cgen, recon_images_cgen = [], []
+                while True:
+                    try:
+                        loss_, pics_ = sess.run([recon_loss_test, recon_images_test],
+                                                {train_aux_data_placeholder: train_data_dict['aux_data'],
+                                                    train_encodings_means_placeholder: means,
+                                                    train_encodings_vars_placeholder: vars})
+                        recon_loss_cgen.append(loss_)
+                        recon_images_cgen.append(pics_)
+                    except tf.errors.OutOfRangeError:
+                        break
+                recon_loss_cgen = np.sum(recon_loss_cgen) / N_test
+                recon_images_cgen = np.concatenate(recon_images_cgen, axis=0)
 
-                    # test set: conditional generation CVAE
-                    if args.elbo == "CVAE":
-                        recon_loss_cgen, recon_images_cgen = sess.run([recon_loss_test, recon_images_test],
-                                            {train_aux_data_placeholder: train_data_dict['aux_data'],
-                                             train_images_placeholder: train_data_dict['images'],
-                                             test_aux_data_placeholder: test_data_dict['aux_data'],
-                                             test_images_placeholder: test_data_dict['images']})
+            # test set: conditional generation CVAE
+            if args.elbo == "CVAE":
+                recon_loss_cgen, recon_images_cgen = sess.run([recon_loss_test, recon_images_test],
+                                    {train_aux_data_placeholder: train_data_dict['aux_data'],
+                                        train_images_placeholder: train_data_dict['images'],
+                                        test_aux_data_placeholder: test_data_dict['aux_data'],
+                                        test_images_placeholder: test_data_dict['images']})
 
-                    # test set: plot generations
-                    if args.elbo != "VAE":
-                        cgen_test_set_MSE.append((epoch, recon_loss_cgen))
-                        print("Conditional generation MSE loss on test set for epoch {}: {}".format(epoch,
-                                                                                                    recon_loss_cgen))
-                        plot_mnist(test_data_dict['images'],
-                                   recon_images_cgen,
-                                   title="Epoch: {}. CGEN MSE test set:{}".format(epoch + 1, round(recon_loss_cgen, 4)))
-                        if args.show_pics:
-                            plt.show()
-                            plt.pause(0.01)
-                        if args.save:
-                            plt.savefig(pic_folder + str(g_s_) + "_cgen.png")
-                            with open(pic_folder + "test_metrics.txt", "a") as f:
-                                f.write("{},{},{}\n".format(epoch + 1, round(MSE, 4), round(recon_loss_cgen, 4)))
+            # test set: plot generations
+            if args.elbo != "VAE":
+                cgen_test_set_MSE.append((epoch, recon_loss_cgen))
+                print("Conditional generation MSE loss on test set for epoch {}: {}".format(epoch,
+                                                                                            recon_loss_cgen))
+                plot_mnist(test_data_dict['images'],
+                            recon_images_cgen,
+                            title="Epoch: {}. CGEN MSE test set:{}".format(epoch + 1, round(recon_loss_cgen, 4)))
+                if args.show_pics:
+                    plt.show()
+                    plt.pause(0.01)
+                if args.save:
+                    plt.savefig(pic_folder + str(g_s_) + "_cgen.png")
+                    with open(pic_folder + "test_metrics.txt", "a") as f:
+                        f.write("{},{},{}\n".format(epoch + 1, round(MSE, 4), round(recon_loss_cgen, 4)))
 
-                    # save model weights
-                    if args.save and args.save_model_weights:
-                        saver.save(sess, chkpnt_dir + "model", global_step=g_s_)
+            # save model weights
+            if args.save and args.save_model_weights:
+                saver.save(sess, chkpnt_dir + "model", global_step=g_s_)
 
             # log running time
             end_time = time.time()
-            print("Running time for {} epochs: {}".format(nr_epochs, round(end_time - start_time, 2)))
+            print("Running time for {} epochs: {}".format(epoch, round(end_time - start_time, 2)))
 
             if "SVGPVAE" in args.elbo:
                 # report best test set cgen MSE achieved throughout training
@@ -1164,6 +1178,7 @@ if __name__=="__main__":
     parser_mnist.add_argument('--bias_analysis', action='store_true',
                               help="Compute bias of estimator for mean vector in hat{q}^Titsias for every epoch.")
     parser_mnist.add_argument('--M', type=int, default=8, help="Dimension of GPLVM vectors.")
+    parser_mnist.add_argument('--patience', type=int, default=3, help="Eval recon_loss no. of epochs to wait before early stopping")
 
 
 
