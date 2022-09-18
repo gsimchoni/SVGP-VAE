@@ -371,6 +371,7 @@ def run_experiment_SVGPVAE(train_data_dict, eval_data_dict, test_data_dict,
             start_time = time.time()
             cgen_test_set_MSE = []
             for epoch in range(nr_epochs):
+                batch = 0
                 if verbose:
                     print(f'epoch: {epoch}')
                 # 7.1) train for one epoch
@@ -408,6 +409,9 @@ def run_experiment_SVGPVAE(train_data_dict, eval_data_dict, test_data_dict,
                         elbos.append(elbo_)
                         losses.append(recon_loss_)
                         first_step = False  # switch for initizalition of GECO algorithm
+                        batch += 1
+                        if verbose:
+                            print(f'  batch: {batch}, elbo: {elbo_}, recon_loss: {recon_loss_}')
                     except tf.errors.OutOfRangeError:
                         if bias_analysis:
                             mean_vector_full_data_ = sess.run(mean_vector_full_data,
