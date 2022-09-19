@@ -6,6 +6,7 @@ import os
 import json
 
 import numpy as np
+from tqdm import tqdm
 from sklearn.decomposition import PCA
 import matplotlib as mpl
 mpl.use('Agg')
@@ -373,6 +374,10 @@ def run_experiment_SVGPVAE(train_data_dict, eval_data_dict, test_data_dict,
             best_loss_counter = 0
             stop_training = False
 
+            def generator():
+                while True:
+                    yield
+
             for epoch in range(nr_epochs):
                 # 7.1) train for one epoch
                 sess.run(training_init_op)
@@ -381,7 +386,8 @@ def run_experiment_SVGPVAE(train_data_dict, eval_data_dict, test_data_dict,
                 batch = 0
                 if bias_analysis:
                     mean_vectors_arr = []
-                while True:
+                t = tqdm(generator(), total=int(N_train / batch_size), ascii=True, disable=not verbose)
+                for _ in t:
                     try:
                         if GECO and "SVGPVAE" in elbo_arg and training_regime[epoch] != 'VAE':
                             if first_step:
@@ -410,8 +416,7 @@ def run_experiment_SVGPVAE(train_data_dict, eval_data_dict, test_data_dict,
                         elbos.append(elbo_)
                         losses.append(recon_loss_)
                         first_step = False  # switch for initizalition of GECO algorithm
-                        if verbose:
-                            print(f'epoch: {epoch}, batch: {batch}, elbo: {elbo_/ batch_size}, recon_loss: {recon_loss_/batch_size}')
+                        t.set_postfix(train_loss=round(recon_loss_/batch_size, 4))
                         batch += 1
                     except tf.errors.OutOfRangeError:
                         if bias_analysis:
@@ -424,9 +429,9 @@ def run_experiment_SVGPVAE(train_data_dict, eval_data_dict, test_data_dict,
                         if (epoch + 1) % 10 == 0:
                             regime = training_regime[epoch] if "SVGPVAE" in elbo_arg else "VAE"
                             print('Epoch {}, opt regime {}, mean ELBO per batch: {}'.format(epoch, regime,
-                                                                                            np.mean(elbos)))
+                                                                                            round(np.mean(elbos), 4)))
                             MSE = np.sum(losses) / N_train
-                            print('MSE loss on train set for epoch {} : {}'.format(epoch, MSE))
+                            print('MSE loss on train set for epoch {} : {}'.format(epoch, round(MSE, 4)))
 
                             end_time_epoch = time.time()
                             print("Time elapsed for epoch {}, opt regime {}: {}".format(epoch,
@@ -447,7 +452,7 @@ def run_experiment_SVGPVAE(train_data_dict, eval_data_dict, test_data_dict,
                             losses.append(recon_loss_)
                         except tf.errors.OutOfRangeError:
                             MSE_eval = np.sum(losses) / N_eval
-                            print('MSE loss on eval set for epoch {} : {}'.format(epoch, MSE_eval))
+                            print('MSE loss on eval set for epoch {} : {}'.format(epoch, round(MSE_eval, 4)))
                             # early stopping
                             if MSE_eval < best_eval_loss:
                                 best_eval_loss = MSE_eval
