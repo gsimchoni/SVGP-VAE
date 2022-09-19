@@ -159,6 +159,7 @@ def run_experiment_SVGPVAE(train_data_dict, eval_data_dict, test_data_dict,
                 if init_PCA:  # use PCA embeddings for initialization of object vectors
                     PC_cols = train_data_dict['aux_X'].columns[train_data_dict['aux_X'].columns.str.startswith('PC')]
                     object_vectors_init = train_data_dict['aux_X'].groupby('z0')[PC_cols].mean()
+                    object_vectors_init = object_vectors_init.reindex(range(q), fill_value=0)
                 else:  # initialize object vectors randomly
                     object_vectors_init = np.random.normal(0, 1.5, q * M).reshape(q, M)
             else:
@@ -436,7 +437,7 @@ def run_experiment_SVGPVAE(train_data_dict, eval_data_dict, test_data_dict,
                             end_time_epoch = time.time()
                             print("Time elapsed for epoch {}, opt regime {}: {}".format(epoch,
                                                                                         regime,
-                                                                                        end_time_epoch - start_time_epoch))
+                                                                                        round(end_time_epoch - start_time_epoch, 4)))
                         break
 
                 # 7.2) calculate loss on eval set
