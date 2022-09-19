@@ -609,7 +609,7 @@ def run_experiment_SVGPVAE(train_data_dict, eval_data_dict, test_data_dict,
                 with open(chkpnt_dir + '/latents_train_full.p', 'wb') as pickle_latents:
                     pickle.dump(latent_samples_full_, pickle_latents)
 
-    return recon_data_Y_cgen
+    return recon_data_Y_cgen, epoch
 
 
 if __name__=="__main__":
