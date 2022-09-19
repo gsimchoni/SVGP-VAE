@@ -74,7 +74,7 @@ def run_experiment_SVGPVAE(train_data_dict, eval_data_dict, test_data_dict,
     disable_gpu=True, beta_arg=0.001, lr_arg=0.001, alpha_arg=0.99, base_dir=os.getcwd(), expid='debug_TABULAR',
     jitter=0.000001, object_kernel_normalize=False, save=False, save_latents=False,
     save_model_weights=False, show_pics=False, kappa_squared=0.020, clip_qs=True,
-    GECO=True, bias_analysis=False, opt_regime=['joint-1000'], test_set_metrics=False,
+    GECO=True, bias_analysis=False, opt_regime=['joint'], test_set_metrics=False,
     ram=1.0):
     """
     Function with tensorflow graph and session for SVGPVAE experiments on tabular data.
@@ -353,11 +353,8 @@ def run_experiment_SVGPVAE(train_data_dict, eval_data_dict, test_data_dict,
         gpu_options = tf.compat.v1.GPUOptions(per_process_gpu_memory_fraction=ram)
 
         # ====================== 7) tf.session ======================
-
-        if "SVGPVAE" in elbo_arg:
-            nr_epochs, training_regime = parse_opt_regime(opt_regime)
-        else:
-            nr_epochs = nr_epochs
+        opt_regime = [r + '-' + str(nr_epochs) for r in opt_regime]
+        nr_epochs, training_regime = parse_opt_regime(opt_regime)
 
         with tf.compat.v1.Session(config=tf.compat.v1.ConfigProto(gpu_options=gpu_options)) as sess:
 
@@ -414,7 +411,7 @@ def run_experiment_SVGPVAE(train_data_dict, eval_data_dict, test_data_dict,
                         losses.append(recon_loss_)
                         first_step = False  # switch for initizalition of GECO algorithm
                         if verbose:
-                            print(f'epoch: {epoch}, batch: {batch}, elbo: {elbo_}, recon_loss: {recon_loss_}')
+                            print(f'epoch: {epoch}, batch: {batch}, elbo: {elbo_/ batch_size}, recon_loss: {recon_loss_/batch_size}')
                         batch += 1
                     except tf.errors.OutOfRangeError:
                         if bias_analysis:
@@ -546,12 +543,12 @@ def run_experiment_SVGPVAE(train_data_dict, eval_data_dict, test_data_dict,
                 recon_loss_cgen, recon_data_Y_cgen = [], []
                 while True:
                     try:
-                        loss_, pics_ = sess.run([recon_loss_test, recon_data_Y_test],
+                        loss_, recon_Y_batch_ = sess.run([recon_loss_test, recon_data_Y_test],
                                                 {train_aux_X_placeholder: train_data_dict['aux_X'],
                                                     train_encodings_means_placeholder: means,
                                                     train_encodings_vars_placeholder: vars})
                         recon_loss_cgen.append(loss_)
-                        recon_data_Y_cgen.append(pics_)
+                        recon_data_Y_cgen.append(recon_Y_batch_)
                     except tf.errors.OutOfRangeError:
                         break
                 recon_loss_cgen = np.sum(recon_loss_cgen) / N_test
@@ -611,6 +608,8 @@ def run_experiment_SVGPVAE(train_data_dict, eval_data_dict, test_data_dict,
                                                     {train_data_Y_placeholder: train_data_dict['data_Y']})
                 with open(chkpnt_dir + '/latents_train_full.p', 'wb') as pickle_latents:
                     pickle.dump(latent_samples_full_, pickle_latents)
+
+    return recon_data_Y_cgen
 
 
 if __name__=="__main__":
