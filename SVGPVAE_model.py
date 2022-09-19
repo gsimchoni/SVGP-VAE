@@ -638,7 +638,8 @@ class TabularDataSVGP(MainTabularSVGP):
             self.amplitude = tf.Variable(initial_value=1.0, name="GP_amplitude_{}".format(name), dtype=self.dtype)
 
         # kernels
-        self.kernel_view = tfk.ExpSinSquared(amplitude=self.amplitude, length_scale=self.l_GP, period=2*np.pi)
+        # self.kernel_view = tfk.ExpSinSquared(amplitude=self.amplitude, length_scale=self.l_GP, period=2*np.pi)
+        self.kernel_view = tfk.ExponentiatedQuadratic(amplitude=self.amplitude, length_scale=self.l_GP)
         self.kernel_object = tfk.Linear()
 
         # object vectors (GPLVM)
