@@ -25,7 +25,7 @@ if __package__ is None or __package__ == '':
                             mnistSVGP, forward_pass_standard_VAE_rotated_mnist, \
                             batching_encode_SVGPVAE, batching_encode_SVGPVAE_full, \
                             forward_pass_SVGPVAE_tabular, predict_CVAE
-    from GPVAE_Casale_model import encode, casaleGP, forward_pass_Casale, predict_test_set_Casale, sort_train_data
+    from GPVAE_Casale_model import encode, casaleGPTabular, forward_pass_Casale_tabular, predict_test_set_Casale, sort_train_data
     from SVIGP_Hensman_model import SVIGP_Hensman, forward_pass_deep_SVIGP_Hensman, predict_deep_SVIGP_Hensman
 else:
     from .utils import generate_init_inducing_points_tabular, plot_tabular, generate_init_inducing_points, import_rotated_mnist, \
@@ -37,7 +37,7 @@ else:
                             batching_encode_SVGPVAE, batching_encode_SVGPVAE_full, \
                             bacthing_predict_SVGPVAE_rotated_mnist, predict_CVAE
 
-    from .GPVAE_Casale_model import encode, casaleGP, forward_pass_Casale, predict_test_set_Casale, sort_train_data
+    from .GPVAE_Casale_model import encode, casaleGPTabular, forward_pass_Casale_tabular, predict_test_set_Casale, sort_train_data
     from .SVIGP_Hensman_model import SVIGP_Hensman, forward_pass_deep_SVIGP_Hensman, predict_deep_SVIGP_Hensman
 
 
@@ -72,7 +72,7 @@ def run_experiment_SVGPVAE(train_data_dict, eval_data_dict, test_data_dict,
     L, q, batch_size, nr_epochs, patience, n_neurons, dropout, activation, verbose, elbo_arg, M,
     nr_inducing_units, nr_inducing_per_unit, RE_cols, aux_cols, init_PCA=True,
     ip_joint=True, GP_joint=True, ov_joint=True,
-    disable_gpu=True, beta_arg=0.001, lr_arg=0.001, alpha_arg=0.99, base_dir=os.getcwd(), expid='debug_TABULAR',
+    disable_gpu=False, beta_arg=0.001, lr_arg=0.001, alpha_arg=0.99, base_dir=os.getcwd(), expid='debug_TABULAR',
     jitter=0.000001, object_kernel_normalize=False, save=False, save_latents=False,
     save_model_weights=False, show_pics=False, kappa_squared=0.020, clip_qs=True,
     GECO=True, bias_analysis=False, opt_regime=['joint'], test_set_metrics=False,
@@ -614,6 +614,363 @@ def run_experiment_SVGPVAE(train_data_dict, eval_data_dict, test_data_dict,
                                                     {train_data_Y_placeholder: train_data_dict['data_Y']})
                 with open(chkpnt_dir + '/latents_train_full.p', 'wb') as pickle_latents:
                     pickle.dump(latent_samples_full_, pickle_latents)
+
+    return recon_data_Y_cgen, epoch
+
+
+
+def run_experiment_GPPVAE(train_data_dict, eval_data_dict, test_data_dict, train_ids_mask,
+    L, q, batch_size, nr_epochs, patience, n_neurons, dropout, activation, verbose, elbo_arg, M,
+    RE_cols, aux_cols, init_PCA=True, ip_joint=True, GP_joint=True, ov_joint=True,
+    disable_gpu=False, beta_arg=0.001, lr_arg=0.001, alpha_arg=0.99, base_dir=os.getcwd(), expid='debug_TABULAR',
+    jitter=0.000001, object_kernel_normalize=False, save=False, save_latents=False,
+    save_model_weights=False, show_pics=False, kappa_squared=0.020, clip_qs=True,
+    bias_analysis=False, opt_regime=['VAE', 'GP'], test_set_metrics=False,
+    ram=1.0):
+    """
+    Reimplementation of Casale's GPPVAE model.
+
+    :param args:
+    :return:
+    """
+    # Problem with local TF setup, works fine in Google Colab
+    if disable_gpu:
+        os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
+    if save:
+        # Make a folder to save everything
+        extra = elbo_arg + "_" + str(beta_arg)
+        chkpnt_dir = make_checkpoint_folder(base_dir, expid, extra)
+        pic_folder = chkpnt_dir + "pics/"
+        res_file = chkpnt_dir + "res/ELBO_pandas"
+        res_file_GP = chkpnt_dir + "res/ELBO_GP_pandas"
+        res_file_VAE = chkpnt_dir + "res/ELBO_VAE_pandas"
+        print("\nCheckpoint Directory:\n" + str(chkpnt_dir) + "\n")
+
+
+        # json.dump(args_dict, open(chkpnt_dir + "/json", "wt"))
+
+    # train_data_dict, eval_data_dict, test_data_dict = load_mnist_data(args, ending = dataset + '.p')
+
+    graph = tf.Graph()
+    with graph.as_default():
+        # ====================== 1) import data ======================
+        train_data, _ = tensor_slice(train_data_dict, batch_size, placeholder=False)
+        N_train = train_data_dict['data_Y'].shape[0]
+        N_eval = eval_data_dict['data_Y'].shape[0]
+        N_test = test_data_dict['data_Y'].shape[0]
+
+        # eval data
+        eval_data, eval_batch_size_placeholder = tensor_slice(eval_data_dict, batch_size, placeholder=True)
+
+        # test data
+        test_data, test_batch_size_placeholder = tensor_slice(test_data_dict, batch_size, placeholder=True)
+
+        # init iterator
+        iterator = tf.compat.v1.data.Iterator.from_structure(
+            tf.compat.v1.data.get_output_types(train_data),
+            tf.compat.v1.data.get_output_shapes(train_data)
+        )
+        training_init_op = iterator.make_initializer(train_data)
+        # eval_init_op = iterator.make_initializer(eval_data)
+        # test_init_op = iterator.make_initializer(test_data)
+
+        # get the batch
+        input_batch = iterator.get_next()
+
+        # ====================== 2) build ELBO graph ======================
+        beta = tf.compat.v1.placeholder(dtype=tf.float64, shape=())
+
+        # placeholders
+        y_shape = (None,) + train_data_dict['data_Y'].shape[1:]
+        train_aux_X_placeholder = tf.compat.v1.placeholder(dtype=tf.float64, shape=(None, 1 + len(RE_cols) + len(aux_cols) + M))
+        train_data_Y_placeholder = tf.compat.v1.placeholder(dtype=tf.float64, shape=y_shape)
+        test_aux_X_placeholder = tf.compat.v1.placeholder(dtype=tf.float64, shape=(None, len(RE_cols) + len(aux_cols) + M))
+        test_data_Y_placeholder = tf.compat.v1.placeholder(dtype=tf.float64, shape=y_shape)
+
+        # init VAE object
+        VAE = tabularVAE(input_batch[0].shape[1], L, n_neurons, dropout, activation)
+
+        GP_joint = not GP_joint
+        if init_PCA:  # use PCA embeddings for initialization of object vectors
+            PC_cols = train_data_dict['aux_X'].columns[train_data_dict['aux_X'].columns.str.startswith('PC')]
+            object_vectors_init = train_data_dict['aux_X'].groupby('z0')[PC_cols].mean()
+            object_vectors_init = object_vectors_init.reindex(range(q), fill_value=0)
+        else:  # initialize object vectors randomly
+            assert ov_joint, "If --ov_joint is not used, at least PCA initialization must be utilized."
+            object_vectors_init = np.random.normal(0, 1.5, q * M).reshape(q, M)
+
+        GP = casaleGPTabular(fixed_gp_params=GP_joint, object_vectors_init=object_vectors_init,
+                            object_kernel_normalize=object_kernel_normalize, ov_joint=ov_joint,
+                            RE_cols=RE_cols, aux_cols=aux_cols)
+
+        # 2.1) encode full train dataset
+        Z = encode(train_data_Y_placeholder, vae=VAE, clipping_qs=clip_qs)  # (N x L)
+
+        # 2.2) compute V matrix and GP taylor coefficients
+        V = GP.V_matrix(train_aux_X_placeholder, train_ids_mask=train_ids_mask)  # (N x H)
+        a, B, c = GP.taylor_coeff(Z=Z, V=V)
+
+        # 2.3) forward passes
+
+        # GPPVAE forward pass
+        elbo, recon_loss, GP_prior_term, log_var, \
+        qnet_mu, qnet_var, recon_images = forward_pass_Casale_tabular(
+            input_batch, vae=VAE, a=a, B=B, c=c, V=V, beta=beta,
+            GP=GP, clipping_qs=clip_qs)
+
+        # plain VAE forward pass
+        recon_loss_VAE, KL_term_VAE, elbo_VAE, \
+        recon_images_VAE, qnet_mu_VAE, qnet_var_VAE, _ = forward_pass_standard_VAE(input_batch, vae=VAE)
+
+        # 2.5) predict on test set (conditional generation)
+        recon_images_test, recon_loss_test = predict_test_set_Casale(test_images=test_data_Y_placeholder,
+                                                                     test_aux_data=test_aux_X_placeholder,
+                                                                     train_aux_data=train_aux_X_placeholder,
+                                                                     V=V, vae=VAE, GP=GP, latent_samples_train=Z)
+
+        # ====================== 3) optimizer ops ======================
+
+        global_step = tf.Variable(0, name='global_step', trainable=False)
+        train_vars = tf.compat.v1.get_collection(tf.compat.v1.GraphKeys.TRAINABLE_VARIABLES)
+        lr = tf.compat.v1.placeholder(dtype=tf.float64, shape=())
+        optimizer = tf.compat.v1.train.AdamOptimizer(learning_rate=lr)
+
+        # 3.1) joint optimization
+        gradients_joint = tf.gradients(elbo, train_vars)
+        optim_step_joint = optimizer.apply_gradients(grads_and_vars=zip(gradients_joint, train_vars),
+                                                     global_step=global_step)
+
+        # 3.2) GP optimization
+        GP_vars = [x for x in train_vars if 'GP' in x.name]
+        gradients_GP = tf.gradients(elbo, GP_vars)
+        optim_step_GP = optimizer.apply_gradients(grads_and_vars=zip(gradients_GP, GP_vars),
+                                                  global_step=global_step)
+
+        # 3.3) VAE optimization
+        VAE_vars = [x for x in train_vars if not 'GP' in x.name]
+        gradients_VAE = tf.gradients(-elbo_VAE, VAE_vars)  # here we optimize standard ELBO objective
+        optim_step_VAE = optimizer.apply_gradients(grads_and_vars=zip(gradients_VAE, VAE_vars),
+                                                   global_step=global_step)
+
+        # ====================== 4) Pandas saver ======================
+        if save:
+            # GP diagnostics
+            GP_l, GP_amp, GP_ov, GP_alpha = GP.variable_summary()
+            if GP_ov is None:
+                GP_ov = tf.constant(0.0)
+
+            res_vars = [global_step,
+                        elbo,
+                        recon_loss,
+                        GP_prior_term,
+                        log_var,
+                        tf.math.reduce_min(qnet_mu),
+                        tf.math.reduce_max(qnet_mu),
+                        tf.math.reduce_min(qnet_var),
+                        tf.math.reduce_max(qnet_var)]
+
+            res_names = ["step",
+                         "ELBO",
+                         "recon loss",
+                         "GP prior term",
+                         "log var term",
+                         "min qnet_mu",
+                         "max qnet_mu",
+                         "min qnet_var",
+                         "max qnet_var"]
+
+            res_vars_GP = [GP_l,
+                           GP_amp,
+                           GP_ov,
+                           GP_alpha]
+
+            res_names_GP = ['length scale', 'amplitude', 'object vectors', 'alpha']
+
+            res_vars_VAE = [global_step,
+                            elbo_VAE,
+                            recon_loss_VAE,
+                            KL_term_VAE,
+                            tf.math.reduce_min(qnet_mu_VAE),
+                            tf.math.reduce_max(qnet_mu_VAE),
+                            tf.math.reduce_min(qnet_var_VAE),
+                            tf.math.reduce_max(qnet_var_VAE)]
+
+            res_names_VAE = ["step",
+                             "ELBO",
+                             "recon loss",
+                             "KL term",
+                             "min qnet_mu",
+                             "max qnet_mu",
+                             "min qnet_var",
+                             "max qnet_var"]
+
+            res_saver = pandas_res_saver(res_file, res_names)
+            res_saver_GP = pandas_res_saver(res_file_GP, res_names_GP)
+            res_saver_VAE = pandas_res_saver(res_file_VAE, res_names_VAE)
+
+        # ====================== 5) print and init trainable params ======================
+
+        print_trainable_vars(train_vars)
+
+        init_op = tf.compat.v1.global_variables_initializer()
+
+        # ====================== 6) saver and GPU ======================
+
+        # if args.save_model_weights:
+        #     saver = tf.compat.v1.train.Saver(max_to_keep=3)
+
+        gpu_options = tf.compat.v1.GPUOptions(per_process_gpu_memory_fraction=ram)
+
+        # ====================== 7) tf.session ======================
+        opt_regime = [r + '-' + str(nr_epochs) for r in opt_regime]
+        nr_epochs, training_regime = parse_opt_regime(opt_regime)
+
+        with tf.compat.v1.Session(config=tf.compat.v1.ConfigProto(gpu_options=gpu_options)) as sess:
+
+            sess.run(init_op)
+
+            start_time = time.time()
+            cgen_test_set_MSE = []
+
+            best_eval_loss = np.inf
+            best_loss_counter = 0
+            stop_training = False
+
+            def generator():
+                while True:
+                    yield
+
+            # training loop
+            for epoch in range(nr_epochs):
+
+                # 7.1) set objective functions etc (support for different training regimes, handcrafted schedules etc)
+
+                if training_regime[epoch] == "VAE":
+                    optim_step = optim_step_VAE
+                    elbo_main = elbo_VAE
+                    recon_loss_main = recon_loss_VAE
+                    recon_images_main = recon_images_VAE
+                    lr_main = 0.001
+                    beta_main = 1.0
+                elif training_regime[epoch] == "GP":
+                    optim_step = optim_step_GP
+                    elbo_main = elbo
+                    beta_main = beta_arg
+                    lr_main = 0.01
+                    recon_loss_main = recon_loss
+                    recon_images_main = recon_images
+                elif training_regime[epoch] == "joint":
+                    optim_step = optim_step_joint
+                    elbo_main = elbo
+                    beta_main = beta_arg
+                    lr_main = 0.001
+                    recon_loss_main = recon_loss
+                    recon_images_main = recon_images
+
+                # 7.2) train for one epoch
+                sess.run(training_init_op)
+
+                elbos, losses = [], []
+                start_time_epoch = time.time()
+                batch = 0
+                t = tqdm(generator(), total=int(N_train / batch_size), ascii=True, disable=not verbose)
+                for _ in t:
+                    try:
+                        _, g_s_, elbo_, recon_loss_ = sess.run([optim_step, global_step, elbo_main, recon_loss_main],
+                                                               {beta: beta_main, lr: lr_main,
+                                                                train_aux_X_placeholder: train_data_dict['aux_X'],
+                                                                train_data_Y_placeholder: train_data_dict['data_Y']})
+                        elbos.append(elbo_)
+                        losses.append(recon_loss_)
+                        t.set_postfix(train_loss=round(recon_loss_/batch_size, 4))
+                        batch += 1
+                    except tf.errors.OutOfRangeError:
+                        if (epoch + 1) % 1 == 0:
+                            print('Epoch {}, opt regime {}, mean ELBO per batch: {}'.format(epoch,
+                                                                                            training_regime[epoch],
+                                                                                            np.mean(elbos)))
+                            MSE = np.sum(losses) / N_train
+                            print('Epoch {}, opt regime {}, MSE loss on train set: {}'.format(epoch,
+                                                                                              training_regime[epoch],
+                                                                                              MSE))
+
+                            end_time_epoch = time.time()
+                            print("Time elapsed for epoch {}, opt regime {}: {}".format(epoch,
+                                                                                        training_regime[epoch],
+                                                                                        end_time_epoch - start_time_epoch))
+
+
+                        break
+
+                # 7.3) calculate loss on eval set
+                # TODO
+
+                # 7.4) save metrics to Pandas df for model diagnostics
+
+                sess.run(training_init_op)  # currently metrics are calculated only for first batch of the training data
+
+                if save and (epoch + 1) % 5 == 0:
+                    if training_regime[epoch] == "VAE":
+                        new_res_VAE = sess.run(res_vars_VAE, {beta: beta_main,
+                                                              train_aux_X_placeholder: train_data_dict['aux_X'],
+                                                              train_data_Y_placeholder: train_data_dict['data_Y']})
+                        res_saver_VAE(new_res_VAE, 1)
+                    else:
+                        new_res = sess.run(res_vars, {beta: beta_main,
+                                                      train_aux_X_placeholder: train_data_dict['aux_X'],
+                                                      train_data_Y_placeholder: train_data_dict['data_Y']})
+                        res_saver(new_res, 1)
+
+                    new_res_GP = sess.run(res_vars_GP)
+                    res_saver_GP(new_res_GP, 1)
+
+                # 7.5) calculate loss on test set and visualize reconstructed images
+                if (epoch + 1) % 5 == 0:
+                    # test set: reconstruction
+                    # TODO
+
+                    # test set: conditional generation
+                    recon_images_cgen, recon_loss_cgen  = sess.run([recon_images_test, recon_loss_test ],
+                                                                  feed_dict={train_data_Y_placeholder:
+                                                                                 train_data_dict['data_Y'],
+                                                                             test_data_Y_placeholder:
+                                                                                 test_data_dict['data_Y'],
+                                                                             train_aux_X_placeholder:
+                                                                                 train_data_dict['aux_X'],
+                                                                             test_aux_X_placeholder:
+                                                                                 test_data_dict['aux_X']})
+
+                    cgen_test_set_MSE.append((epoch, recon_loss_cgen))
+                    print("Conditional generation MSE loss on test set for epoch {}: {}".format(epoch,
+                                                                                                recon_loss_cgen))
+                    # plot_mnist(test_data_dict['images'],
+                    #            recon_images_cgen,
+                    #            title="Epoch: {}. CGEN MSE test set:{}".format(epoch + 1, round(recon_loss_cgen, 4)))
+                    if show_pics:
+                        plt.show()
+                        plt.pause(0.01)
+                    if save:
+                        plt.savefig(pic_folder + str(g_s_) + "_cgen.png")
+                        with open(pic_folder + "test_metrics.txt", "a") as f:
+                            f.write("{},{}\n".format(epoch + 1, round(recon_loss_cgen, 4)))
+
+                    # save model weights
+                    if save and save_model_weights:
+                        saver.save(sess, chkpnt_dir + "model", global_step=g_s_)
+
+            # log running time
+            end_time = time.time()
+            print("Running time for {} epochs: {}".format(nr_epochs, round(end_time - start_time, 2)))
+
+            # report best test set cgen MSE achieved throughout training
+            best_cgen_MSE = sorted(cgen_test_set_MSE, key=lambda x: x[1])[0]
+            print("Best cgen MSE on test set throughout training at epoch {}: {}".format(best_cgen_MSE[0],
+                                                                                         best_cgen_MSE[1]))
+
+            # save images from conditional generation
+            if save:
+                with open(chkpnt_dir + '/cgen_images.p', 'wb') as test_pickle:
+                    pickle.dump(recon_images_cgen, test_pickle)
 
     return recon_data_Y_cgen, epoch
 
